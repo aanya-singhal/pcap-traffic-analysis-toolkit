@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Mac
+.DS_Store
+
+# Uploaded PCAPs and generated database
+uploads/*
+!uploads/.gitkeep
+*.db
+
+# Generated reports
+reports/
