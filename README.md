@@ -2,7 +2,9 @@
 
 Information Security Lab (ICT 3141) mini-project, B.Tech CCE 5th Semester, MIT Manipal.
 
-A lightweight web tool that takes an uploaded PCAP file, parses packet metadata, stores it in SQLite, runs explainable rule-based security checks, and shows the findings on a dashboard.
+A lightweight web tool that takes an uploaded PCAP file, parses packet metadata with PyShark, stores it in SQLite, runs explainable rule-based security checks, and shows the findings on a dashboard.
+
+![Dashboard: port scan findings](docs/screenshots/01_port_scan_findings.png)
 
 ## Team
 
@@ -16,32 +18,90 @@ A lightweight web tool that takes an uploaded PCAP file, parses packet metadata,
 
 ## Pipeline
 
-Upload → Parse → Store → Detect → Visualize → Report
+**Upload → Parse → Store → Detect → Visualize → Report**
 
-## Tech Stack
+| Stage | Implementation |
+|---|---|
+| Upload | Flask upload form (`.pcap`, `.pcapng`, `.cap`, max 50 MB) |
+| Parse | `parser/pcap_parser.py`: PyShark extracts IPs, ports, protocol, timestamps, TCP flags, DNS queries, HTTP requests |
+| Store | `database/db.py`: SQLite tables `packets`, `dns_queries`, `http_requests`, `findings`, `analyses` |
+| Detect | `detection/rules.py`: SQL + Python rules with configurable thresholds |
+| Visualize | `templates/dashboard.html`: summary cards, findings table, 4 Chart.js charts, DNS table |
+| Report | PDF export (planned, Week 6) |
 
-- **Parsing:** PyShark / TShark
-- **Backend:** Python, Flask
-- **Database:** SQLite (sqlite3)
-- **Frontend:** HTML, Tailwind CSS, Chart.js
-- **Test data:** Wireshark sample captures, PCAP-ATTACK
+## Detection Rules
+
+| Rule | Logic | Default threshold |
+|---|---|---|
+| Port Scan | One source sends TCP SYN to many distinct ports on a host (sliding window) | 15 ports / 60 s |
+| Brute Force | Repeated connection attempts to a login service (SSH, FTP, RDP, SMB, ...) | 20 attempts / 60 s |
+| Volume Anomaly | One host sends a disproportionate share of all bytes | ≥ 50% (min 100 packets, 3 hosts) |
+| Suspicious Port | Traffic to backdoor / cleartext ports (4444, 31337, 12345, 23, 6667, ...) | any |
+| DNS Anomaly | High query volume from one host, or very long domain names | 100 queries / 50 chars |
+
+Every finding states which host triggered it, the threshold used and the evidence count. Findings are indicators for investigation, not proof of malicious activity.
+
+## Setup and Run
+
+Requires Python 3.10+ and TShark (install Wireshark from wireshark.org, or `brew install wireshark`).
+
+```bash
+git clone https://github.com/aanya-singhal/pcap-traffic-analysis-toolkit.git
+cd pcap-traffic-analysis-toolkit
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python app.py
+```
+
+Open http://127.0.0.1:5001 and upload a capture (sample files are in `samples/`).
+
+## Testing and Preliminary Results
+
+```bash
+python tests/generate_test_pcaps.py   # builds 5 labelled captures in samples/
+python tests/run_evaluation.py        # runs the full pipeline and scores the rules
+```
+
+Each test capture contains normal background traffic (4 hosts browsing over HTTP/HTTPS with DNS) plus one known attack. Expected findings are stored in `samples/expected_findings.json`.
+
+| Capture | Expected | Detected | Result |
+|---|---|---|---|
+| normal_traffic.pcap | none | none | PASS |
+| port_scan.pcap | Port Scan, Suspicious Port | Port Scan, Suspicious Port | PASS |
+| brute_force_ssh.pcap | Brute Force | Brute Force | PASS |
+| volume_exfil.pcap | Volume Anomaly | Volume Anomaly | PASS |
+| dns_tunnel_c2.pcap | DNS Anomaly, Suspicious Port | DNS Anomaly, Suspicious Port | PASS |
+
+- **TPR:** 100% (6/6) · **FPR:** 0% (0/19) · **Database completeness:** 100% of packets stored
+- **Processing time:** ~2–18 s/MB (PyShark parsing is the bottleneck)
+
+These are synthetic captures, so the results validate rule correctness. Evaluation on public datasets (Wireshark samples, PCAP-ATTACK) is the next phase. Full table: [docs/evaluation_results.md](docs/evaluation_results.md).
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Traffic timeline](docs/screenshots/02_traffic_timeline.png) | ![Protocols and top talkers](docs/screenshots/03_protocols_top_talkers.png) |
+| ![Ports and DNS](docs/screenshots/04_ports_dns.png) | ![Rules and thresholds](docs/screenshots/05_rules_thresholds.png) |
 
 ## Project Structure
+app.py Flask app and pipeline orchestration
+parser/pcap_parser.py PCAP parsing and field extraction
+database/db.py SQLite schema, inserts and traffic-statistics queries
+detection/rules.py Rule-based detection engine
+templates/ Upload page and dashboard
+samples/ Labelled test captures + expected findings
+tests/ Test capture generator and evaluation script
+docs/ Development log, evaluation results, screenshots
 
-## Detection Rules (planned)
 
-- Port scan: one source IP contacts many distinct destination ports in a short window
-- Brute-force: many connection attempts to a single port
-- Volume anomaly: a host contributes a disproportionate share of traffic
-- Suspicious ports: traffic on commonly abused ports
-- DNS anomaly: unusually high DNS query counts
+## Progress (Stage II)
 
-Rules use configurable thresholds and are indicators for investigation, not proof of malicious activity.
+Weeks 1–4 of the plan are complete (scope, parsing, storage, detection rules), and the Week 5 dashboard is already working. See [docs/devlog.md](docs/devlog.md) for progress against plan, issues encountered and how they were resolved.
+
+**Next:** PDF report export, evaluation on public datasets, configurable thresholds from the UI.
 
 ## Scope
 
 Offline analysis of authorized PCAP files only. No live capture and no decryption of encrypted payloads.
-
-## Status
-
-Work in progress (Stage II progress evaluation).

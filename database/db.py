@@ -194,6 +194,8 @@ def top_dst_ports(conn, analysis_id, limit=10):
     return conn.execute(
         """SELECT dst_port, COUNT(*) AS count FROM packets
            WHERE analysis_id = ? AND dst_port IS NOT NULL
+                 AND ((transport = 'TCP' AND syn = 1 AND ack = 0)
+                      OR (transport = 'UDP' AND dst_port < src_port))
            GROUP BY dst_port ORDER BY count DESC LIMIT ?""",
         (analysis_id, limit),
     ).fetchall()

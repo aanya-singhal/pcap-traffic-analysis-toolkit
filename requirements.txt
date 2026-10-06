@@ -1,3 +1,4 @@
 flask
 pyshark
 reportlab
+scapy

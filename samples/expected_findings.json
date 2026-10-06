@@ -1,0 +1,17 @@
+{
+  "normal_traffic.pcap": [],
+  "port_scan.pcap": [
+    "Port Scan",
+    "Suspicious Port"
+  ],
+  "brute_force_ssh.pcap": [
+    "Brute Force"
+  ],
+  "volume_exfil.pcap": [
+    "Volume Anomaly"
+  ],
+  "dns_tunnel_c2.pcap": [
+    "DNS Anomaly",
+    "Suspicious Port"
+  ]
+}
