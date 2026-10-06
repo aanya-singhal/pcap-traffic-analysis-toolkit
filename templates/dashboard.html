@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Analysis #{{ analysis.id }} · PCAP Analysis Toolkit{% endblock %}
+{% block content %}
+
+{% macro human_bytes(n) -%}
+  {%- if n >= 1048576 -%}{{ "%.2f"|format(n / 1048576) }} MB
+  {%- elif n >= 1024 -%}{{ "%.1f"|format(n / 1024) }} KB
+  {%- else -%}{{ n }} B{%- endif -%}
+{%- endmacro %}
+
+{% set sev_style = {
+  "High": "bg-red-500/15 text-red-300 border-red-500/40",
+  "Medium": "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  "Low": "bg-sky-500/15 text-sky-300 border-sky-500/40"
+} %}
+
+<!-- Header -->
+<section class="mb-8 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <div class="text-xs uppercase tracking-wider text-slate-500">Analysis #{{ analysis.id }}</div>
+    <h1 class="text-2xl font-bold text-slate-100 font-mono break-all">{{ analysis.filename }}</h1>
+    <p class="text-sm text-slate-400 mt-1">
+      {{ human_bytes(analysis.file_size or 0) }} capture ·
+      parsed in {{ "%.2f"|format(analysis.parse_seconds or 0) }}s ·
+      rules ran in {{ "%.3f"|format(analysis.detect_seconds or 0) }}s
+    </p>
+  </div>
+  <a href="/" class="text-sm px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium">Analyse another file</a>
+</section>
+
+<!-- Summary cards -->
+<section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+  {% set cards = [
+    ("Packets", "{:,}".format(summary.total_packets)),
+    ("Data", human_bytes(summary.total_bytes)),
+    ("Source hosts", summary.unique_src),
+    ("Duration", "%.1f s"|format(summary.duration)),
+    ("DNS queries", summary.dns_queries),
+    ("Processing", "%.2f s/MB"|format(seconds_per_mb)),
+  ] %}
+  {% for label, value in cards %}
+    <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <div class="text-xs text-slate-500">{{ label }}</div>
+      <div class="text-xl font-semibold text-slate-100 mt-1">{{ value }}</div>
+    </div>
+  {% endfor %}
+</section>
+
+<!-- Findings -->
+<section class="rounded-xl border border-slate-800 bg-slate-900 p-6 mb-8">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <h2 class="text-lg font-semibold text-slate-100">Security findings ({{ findings|length }})</h2>
+    <div class="flex gap-2 text-xs">
+      {% for level in ["High", "Medium", "Low"] %}
+        <span class="px-2.5 py-1 rounded-md border {{ sev_style[level] }}">{{ level }}: {{ severity_counts[level] }}</span>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if findings %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b border-slate-800">
+          <tr><th class="py-2 pr-4">Severity</th><th class="py-2 pr-4">Rule</th><th class="py-2 pr-4">Source</th>
+              <th class="py-2 pr-4">Target</th><th class="py-2 pr-4">Why it was flagged</th><th class="py-2">Evidence</th></tr>
+        </thead>
+        <tbody>
+          {% for f in findings %}
+          <tr class="border-b border-slate-800/60 align-top">
+            <td class="py-3 pr-4"><span class="px-2 py-0.5 rounded border text-xs {{ sev_style[f.severity] }}">{{ f.severity }}</span></td>
+            <td class="py-3 pr-4 font-medium text-slate-200 whitespace-nowrap">{{ f.rule }}</td>
+            <td class="py-3 pr-4 font-mono text-slate-300">{{ f.src_ip or "—" }}</td>
+            <td class="py-3 pr-4 font-mono text-slate-300">{{ f.dst_ip or "—" }}</td>
+            <td class="py-3 pr-4 text-slate-400">{{ f.detail }}</td>
+            <td class="py-3 text-slate-300">{{ f.evidence_count }} pkts</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="px-4 py-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">
+      No rules were triggered for this capture at the current thresholds.
+    </div>
+  {% endif %}
+</section>
+
+<!-- Charts -->
+<section class="grid lg:grid-cols-2 gap-6 mb-8">
+  <div class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h3 class="font-semibold text-slate-100 mb-4">Traffic over time (packets)</h3>
+    <div class="h-64"><canvas id="timelineChart"></canvas></div>
+  </div>
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h3 class="font-semibold text-slate-100 mb-4">Protocol distribution</h3>
+    <div class="h-72"><canvas id="protocolChart"></canvas></div>
+  </div>
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h3 class="font-semibold text-slate-100 mb-4">Top talkers (bytes sent)</h3>
+    <div class="h-72"><canvas id="talkersChart"></canvas></div>
+  </div>
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h3 class="font-semibold text-slate-100 mb-4">Top destination ports</h3>
+    <div class="h-72"><canvas id="portsChart"></canvas></div>
+  </div>
+
+  <!-- DNS -->
+  <div class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h3 class="font-semibold text-slate-100 mb-4">Top DNS queries</h3>
+    {% if dns %}
+      <table class="w-full text-sm">
+        <tbody>
+          {% for d in dns %}
+          <tr class="border-b border-slate-800/60">
+            <td class="py-2 pr-4 font-mono text-slate-300 break-all">{{ d.query }}</td>
+            <td class="py-2 text-right text-slate-400">{{ d.count }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-sm text-slate-500">No DNS queries in this capture.</p>
+    {% endif %}
+  </div>
+</section>
+
+<!-- Rule reference -->
+<section class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+  <h2 class="text-lg font-semibold text-slate-100 mb-4">Rules & thresholds used</h2>
+  <div class="grid md:grid-cols-2 gap-6 text-sm">
+    <ul class="space-y-3">
+      {% for name, desc in rule_descriptions.items() %}
+        <li><span class="font-medium text-slate-200">{{ name }}:</span> <span class="text-slate-400">{{ desc }}</span></li>
+      {% endfor %}
+    </ul>
+    <div class="font-mono text-xs bg-slate-950 border border-slate-800 rounded-lg p-4 overflow-x-auto">
+      {% for k, v in thresholds.items() %}
+        <div><span class="text-emerald-400">{{ k }}</span> = <span class="text-slate-300">{{ v }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const data = {{ chart_data|tojson }};
+  const palette = ["#34d399", "#60a5fa", "#fbbf24", "#f87171", "#a78bfa", "#2dd4bf", "#fb923c", "#94a3b8"];
+
+  Chart.defaults.color = "#94a3b8";
+  Chart.defaults.borderColor = "#1e293b";
+  Chart.defaults.font.family = "ui-sans-serif, system-ui, sans-serif";
+
+  new Chart(document.getElementById("timelineChart"), {
+    type: "line",
+    data: { labels: data.timeline.labels,
+            datasets: [{ label: "Packets", data: data.timeline.values, borderColor: "#34d399",
+                         backgroundColor: "rgba(52,211,153,0.12)", fill: true, tension: 0.3, pointRadius: 0 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+               scales: { x: { ticks: { maxTicksLimit: 12 } }, y: { beginAtZero: true } } }
+  });
+
+  new Chart(document.getElementById("protocolChart"), {
+    type: "doughnut",
+    data: { labels: data.protocols.labels,
+            datasets: [{ data: data.protocols.values, backgroundColor: palette, borderColor: "#0f172a" }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { position: "right" } } }
+  });
+
+  new Chart(document.getElementById("talkersChart"), {
+    type: "bar",
+    data: { labels: data.talkers.labels,
+            datasets: [{ label: "Bytes", data: data.talkers.values, backgroundColor: "#60a5fa" }] },
+    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } } }
+  });
+
+  new Chart(document.getElementById("portsChart"), {
+    type: "bar",
+    data: { labels: data.ports.labels,
+            datasets: [{ label: "Packets", data: data.ports.values, backgroundColor: "#fbbf24" }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
+  });
+</script>
+{% endblock %}

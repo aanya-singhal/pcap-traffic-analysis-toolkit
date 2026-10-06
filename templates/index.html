@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="mb-10">
+  <h1 class="text-3xl font-bold text-slate-100">Automated PCAP & Network Traffic Analysis</h1>
+  <p class="mt-2 text-slate-400 max-w-3xl">
+    Upload an authorized packet capture. The toolkit parses packet metadata with PyShark, stores it in SQLite,
+    runs explainable rule-based checks, and shows the findings on a dashboard.
+  </p>
+</section>
+
+<div class="grid lg:grid-cols-3 gap-6">
+
+  <!-- Upload card -->
+  <section class="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h2 class="text-lg font-semibold text-slate-100 mb-4">Upload capture</h2>
+    <form id="upload-form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+      <label for="pcap" id="drop-zone"
+             class="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-slate-700 rounded-xl cursor-pointer hover:border-emerald-500 hover:bg-emerald-500/5 transition">
+        <div class="text-4xl mb-2">📦</div>
+        <div id="file-label" class="text-slate-300 font-medium">Click to choose a .pcap / .pcapng file</div>
+        <div class="text-xs text-slate-500 mt-1">Max 50 MB · offline analysis only</div>
+        <input id="pcap" name="pcap" type="file" accept=".pcap,.pcapng,.cap" class="hidden">
+      </label>
+      <button id="submit-btn" type="submit"
+              class="mt-5 w-full py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition disabled:opacity-60 disabled:cursor-wait">
+        Analyse capture
+      </button>
+    </form>
+
+    <!-- Pipeline -->
+    <div class="mt-8">
+      <div class="text-xs uppercase tracking-wider text-slate-500 mb-3">Analysis pipeline</div>
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        {% for step in ["Upload", "Parse (PyShark)", "Store (SQLite)", "Detect (Rules)", "Visualize", "Report"] %}
+          <span class="px-3 py-1.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300">{{ step }}</span>
+          {% if not loop.last %}<span class="text-slate-600">→</span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Rules card -->
+  <section class="rounded-xl border border-slate-800 bg-slate-900 p-6">
+    <h2 class="text-lg font-semibold text-slate-100 mb-4">Detection rules</h2>
+    <ul class="space-y-3 text-sm">
+      {% for name, desc in [
+        ("Port Scan", "Many distinct ports contacted by one source in a short window"),
+        ("Brute Force", "Repeated connection attempts to a login service"),
+        ("Volume Anomaly", "One host sending a disproportionate share of traffic"),
+        ("Suspicious Port", "Traffic to known backdoor / cleartext ports"),
+        ("DNS Anomaly", "High query volume or abnormally long domain names")
+      ] %}
+        <li class="flex gap-3">
+          <span class="mt-1.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+          <div><div class="text-slate-200 font-medium">{{ name }}</div><div class="text-slate-400">{{ desc }}</div></div>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<!-- Recent analyses -->
+<section class="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-6">
+  <h2 class="text-lg font-semibold text-slate-100 mb-4">Recent analyses</h2>
+  {% if recent %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b border-slate-800">
+          <tr><th class="py-2 pr-4">#</th><th class="py-2 pr-4">File</th><th class="py-2 pr-4">Size</th>
+              <th class="py-2 pr-4">Packets</th><th class="py-2 pr-4">Processing time</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for a in recent %}
+          <tr class="border-b border-slate-800/60">
+            <td class="py-2 pr-4 text-slate-500">{{ a.id }}</td>
+            <td class="py-2 pr-4 font-mono">{{ a.filename }}</td>
+            <td class="py-2 pr-4">{{ "%.1f"|format((a.file_size or 0) / 1024) }} KB</td>
+            <td class="py-2 pr-4">{{ a.packet_count }}</td>
+            <td class="py-2 pr-4">{{ "%.2f"|format((a.parse_seconds or 0) + (a.detect_seconds or 0)) }} s</td>
+            <td class="py-2 text-right"><a class="text-emerald-400 hover:underline" href="{{ url_for('dashboard', analysis_id=a.id) }}">View →</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-slate-500 text-sm">No analyses yet. Upload a capture to get started.</p>
+  {% endif %}
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const input = document.getElementById("pcap");
+  const label = document.getElementById("file-label");
+  const form = document.getElementById("upload-form");
+  const btn = document.getElementById("submit-btn");
+
+  input.addEventListener("change", () => {
+    if (input.files.length) label.textContent = input.files[0].name;
+  });
+
+  form.addEventListener("submit", (e) => {
+    if (!input.files.length) { e.preventDefault(); label.textContent = "Please choose a file first"; return; }
+    btn.disabled = true;
+    btn.textContent = "Analysing… parsing packets, this can take a moment";
+  });
+</script>
+{% endblock %}
