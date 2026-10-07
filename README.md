@@ -78,6 +78,27 @@ Each test capture contains normal background traffic (4 hosts browsing over HTTP
 
 These are synthetic captures, so the results validate rule correctness. Evaluation on public datasets (Wireshark samples, PCAP-ATTACK) is the next phase. Full table: [docs/evaluation_results.md](docs/evaluation_results.md).
 
+## Live Capture Demo (extension beyond planned scope)
+
+The original synopsis scoped the toolkit to **offline analysis of uploaded PCAP files only**. As an extension, we added an optional live-capture mode and a fully reproducible, self-contained demo that catches an attacker **in real time** on a private Docker network. This exercises the same parse → store → detect → visualize pipeline on traffic sniffed from the wire instead of a file; the upload flow is unchanged.
+
+The demo brings up three containers on one isolated bridge network:
+
+| Container | Role |
+|---|---|
+| `receiver` | Runs the dashboard **and** is the victim; captures its own interface with TShark |
+| `attacker` | Loops an nmap SYN port scan (incl. backdoor ports 4444 / 31337) and an SSH brute-force burst against the receiver |
+| `client` | Loops normal web requests to the receiver, providing a benign baseline |
+
+```bash
+docker compose up --build
+# open http://localhost:5001  ->  click "Capture live traffic (20s)"
+```
+
+After ~20 s the dashboard shows the attacker's scan and brute-force **caught live** — Port Scan, Brute Force and Suspicious Port findings — standing out against the client's normal traffic. Everything targets our own receiver on an isolated network; nothing leaves the host.
+
+Live capture requires TShark and permission to read the interface, so the button appears only when TShark is available (always true inside the `receiver` container). The capture interface and window are configurable via `CAPTURE_IFACE` and `CAPTURE_SECONDS`.
+
 ## Screenshots
 
 | | |
@@ -94,6 +115,9 @@ templates/ Upload page and dashboard
 samples/ Labelled test captures + expected findings
 tests/ Test capture generator and evaluation script
 docs/ Development log, evaluation results, screenshots
+Dockerfile App image (Python + TShark) for the live-capture demo
+docker-compose.yml Three-container live-capture demo (receiver / attacker / client)
+docker/ Attacker + client scripts and their image
 
 
 ## Progress (Stage II)
@@ -104,4 +128,4 @@ Weeks 1–4 of the plan are complete (scope, parsing, storage, detection rules),
 
 ## Scope
 
-Offline analysis of authorized PCAP files only. No live capture and no decryption of encrypted payloads.
+The core toolkit performs offline analysis of authorized PCAP files; it does not decrypt encrypted payloads. The synopsis originally listed live capture as out of scope — we have since **extended beyond that plan** with the optional Docker-based live-capture demo above, which captures only our own receiver container on an isolated private network. The upload-only workflow remains the primary, always-available path.

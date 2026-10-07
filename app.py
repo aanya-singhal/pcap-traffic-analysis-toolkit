@@ -3,18 +3,23 @@ Flask web app: upload a PCAP, run the analysis pipeline, show the dashboard.
 Pipeline: Upload -> Parse -> Store -> Detect -> Visualize
 """
 import os
+import shutil
 import time
 
 from flask import Flask, render_template, request, redirect, url_for, flash, abort
 from werkzeug.utils import secure_filename
 
-from parser.pcap_parser import parse_pcap
+from parser.pcap_parser import parse_pcap, capture_to_file
 from database import db
 from detection.rules import run_all_rules, RULE_DESCRIPTIONS, THRESHOLDS
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
+
+# Live capture (used by the Docker demo; harmless to leave configured elsewhere)
+CAPTURE_IFACE = os.environ.get("CAPTURE_IFACE", "eth0")
+CAPTURE_SECONDS = int(os.environ.get("CAPTURE_SECONDS", "20"))
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB upload limit
@@ -29,7 +34,13 @@ def index():
     conn = db.get_connection()
     recent = db.list_analyses(conn)
     conn.close()
-    return render_template("index.html", recent=recent)
+    return render_template(
+        "index.html",
+        recent=recent,
+        live_capture=shutil.which("tshark") is not None,
+        capture_iface=CAPTURE_IFACE,
+        capture_seconds=CAPTURE_SECONDS,
+    )
 
 
 @app.route("/upload", methods=["POST"])
@@ -49,12 +60,44 @@ def upload():
     file.save(saved_path)
     file_size = os.path.getsize(saved_path)
 
+    try:
+        analysis_id = _analyse_pcap(saved_path, filename, file_size)
+    except Exception as e:
+        flash(f"Could not analyse this file: {e}")
+        return redirect(url_for("index"))
+
+    return redirect(url_for("dashboard", analysis_id=analysis_id))
+
+
+@app.route("/capture", methods=["POST"])
+def capture():
+    """
+    Capture live traffic on this host's interface for a short window, then run
+    the identical parse -> store -> detect -> visualize pipeline on it. Intended
+    for the Docker demo, where this app runs in the 'receiver' container while an
+    'attacker' container scans/brute-forces it and a 'client' container generates
+    normal traffic. The upload flow is unchanged; this route is purely additive.
+    """
+    try:
+        pcap_path = capture_to_file(CAPTURE_IFACE, CAPTURE_SECONDS)
+        file_size = os.path.getsize(pcap_path)
+        label = f"live_{CAPTURE_IFACE}_{int(time.time())}.pcap"
+        analysis_id = _analyse_pcap(pcap_path, label, file_size)
+    except Exception as e:
+        flash(f"Live capture failed: {e}")
+        return redirect(url_for("index"))
+
+    return redirect(url_for("dashboard", analysis_id=analysis_id))
+
+
+def _analyse_pcap(path, filename, file_size):
+    """Shared pipeline for both uploaded and live-captured PCAPs."""
     conn = db.get_connection()
     analysis_id = db.create_analysis(conn, filename, file_size)
     try:
         # 1. Parse
         t0 = time.time()
-        parsed = parse_pcap(saved_path)
+        parsed = parse_pcap(path)
         parse_seconds = time.time() - t0
 
         # 2. Store
@@ -72,13 +115,9 @@ def upload():
             parse_seconds=round(parse_seconds, 3),
             detect_seconds=round(detect_seconds, 3),
         )
-    except Exception as e:
+    finally:
         conn.close()
-        flash(f"Could not analyse this file: {e}")
-        return redirect(url_for("index"))
-
-    conn.close()
-    return redirect(url_for("dashboard", analysis_id=analysis_id))
+    return analysis_id
 
 
 @app.route("/analysis/<int:analysis_id>")
@@ -133,4 +172,7 @@ def dashboard(analysis_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5001"))
+    debug = os.environ.get("FLASK_DEBUG", "1") == "1"
+    app.run(host=host, debug=debug, port=port)

@@ -1,0 +1,66 @@
+# Live-capture demo: three containers on one private network.
+#
+#   receiver  - runs the dashboard AND is the victim; captures its own eth0
+#   attacker  - loops an nmap port scan + an SSH brute-force burst at receiver
+#   client    - loops normal web requests at receiver (benign baseline)
+#
+# Usage:
+#   docker compose up --build
+#   open http://localhost:5001  ->  click "Capture live traffic (20s)"
+#   the dashboard shows the attacker's scan and brute-force caught live.
+#
+# Everything targets our own receiver on an isolated bridge network; nothing
+# leaves the host.
+
+services:
+  receiver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pcap-receiver
+    ports:
+      - "5001:5001"
+    environment:
+      CAPTURE_IFACE: eth0
+      CAPTURE_SECONDS: "20"
+    # TShark/dumpcap needs these to sniff the interface.
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    networks:
+      - lab
+
+  attacker:
+    build:
+      context: .
+      dockerfile: docker/attacker.Dockerfile
+    container_name: pcap-attacker
+    command: ["/attacker.sh"]
+    environment:
+      TARGET: receiver
+    # nmap -sS (SYN scan) needs raw sockets.
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    depends_on:
+      - receiver
+    networks:
+      - lab
+
+  client:
+    build:
+      context: .
+      dockerfile: docker/attacker.Dockerfile
+    container_name: pcap-client
+    command: ["/client.sh"]
+    environment:
+      TARGET: receiver
+      PORT: "5001"
+    depends_on:
+      - receiver
+    networks:
+      - lab
+
+networks:
+  lab:
+    driver: bridge

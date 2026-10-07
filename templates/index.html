@@ -28,6 +28,28 @@
       </button>
     </form>
 
+    {% if live_capture %}
+    <div class="mt-6 pt-6 border-t border-slate-800">
+      <div class="flex items-start gap-3">
+        <div class="text-2xl">📡</div>
+        <div class="flex-1">
+          <div class="text-slate-200 font-medium">Capture live traffic</div>
+          <div class="text-sm text-slate-400 mt-0.5">
+            Sniff this host's interface (<span class="font-mono">{{ capture_iface }}</span>) for
+            {{ capture_seconds }}s, then run the same pipeline on it. Used by the Docker demo to catch
+            an attacker container in real time.
+          </div>
+        </div>
+      </div>
+      <form id="capture-form" action="{{ url_for('capture') }}" method="post">
+        <button id="capture-btn" type="submit"
+                class="mt-4 w-full py-3 rounded-lg border border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10 font-semibold transition disabled:opacity-60 disabled:cursor-wait">
+          Capture live traffic ({{ capture_seconds }}s)
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
     <!-- Pipeline -->
     <div class="mt-8">
       <div class="text-xs uppercase tracking-wider text-slate-500 mb-3">Analysis pipeline</div>
@@ -107,5 +129,14 @@
     btn.disabled = true;
     btn.textContent = "Analysing… parsing packets, this can take a moment";
   });
+
+  const captureForm = document.getElementById("capture-form");
+  if (captureForm) {
+    captureForm.addEventListener("submit", () => {
+      const cbtn = document.getElementById("capture-btn");
+      cbtn.disabled = true;
+      cbtn.textContent = "Capturing live traffic… watching the wire";
+    });
+  }
 </script>
 {% endblock %}

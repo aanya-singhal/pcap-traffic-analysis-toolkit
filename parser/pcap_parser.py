@@ -3,6 +3,11 @@ PCAP parser: reads a capture file with PyShark and returns structured records.
 Module owner: Akshat Richhariya
 """
 import asyncio
+import os
+import shutil
+import subprocess
+import tempfile
+
 import pyshark
 
 
@@ -107,3 +112,45 @@ def parse_pcap(path, max_packets=None):
         cap.close()
 
     return {"packets": packets, "dns": dns_records, "http": http_records}
+
+
+def capture_to_file(iface, seconds, out_path=None):
+    """
+    Capture live traffic on `iface` for `seconds` using TShark, writing a PCAP
+    to `out_path` (a temp file if not given) and returning the path.
+
+    This is the only live-capture code: once the window closes, the resulting
+    file goes through the exact same parse/store/detect pipeline as an upload,
+    so nothing downstream has to know whether a capture came from a file or the
+    wire. Requires TShark and permission to read the interface (inside the
+    receiver container TShark runs as root on eth0).
+    """
+    if shutil.which("tshark") is None:
+        raise RuntimeError(
+            "TShark is not installed, so live capture is unavailable. "
+            "Live capture is intended to run inside the Docker demo (see docker-compose.yml)."
+        )
+    if out_path is None:
+        fd, out_path = tempfile.mkstemp(prefix="live_", suffix=".pcap")
+        os.close(fd)
+
+    # -a duration:N stops capture after N seconds; -f limits to IP traffic so we
+    # don't record ARP/loopback noise on the container bridge.
+    cmd = [
+        "tshark", "-i", iface,
+        "-a", f"duration:{int(seconds)}",
+        "-f", "ip",
+        "-w", out_path,
+    ]
+    try:
+        subprocess.run(
+            cmd, check=True, timeout=int(seconds) + 30,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or b"").decode("utf-8", "replace").strip()
+        raise RuntimeError(f"TShark capture failed on {iface}: {stderr or e}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"TShark capture on {iface} did not finish in time.")
+
+    return out_path

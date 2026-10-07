@@ -12,6 +12,7 @@
 | 6. Visualization and reporting | Week 6 | Partly ahead: 4 Chart.js charts done; PDF export pending |
 | 7. Testing and evaluation | Week 7 | Started early: labelled synthetic captures + evaluation script |
 | 8–9. Documentation, integration, demo | Weeks 8–9 | In progress |
+| Extension: live capture demo | beyond plan | Done: Dockerized 3-container demo catches an attacker live |
 
 ## Issues encountered and how they were resolved
 
@@ -43,6 +44,14 @@
 ### 7. Avoiding false positives in brute-force and volume rules
 - **Problem:** Normal browsing makes many connections to 443, and tiny captures make one host look "dominant".
 - **Fix:** Brute-force is limited to login-service ports (SSH, FTP, RDP, SMB, etc.); volume anomaly requires at least 100 packets and 3 hosts.
+
+### 8. Extending to live capture without touching the upload flow
+- **Goal:** Demonstrate detection on real-time traffic, not just uploaded files, while keeping the offline workflow intact.
+- **Design:** Added `parser.capture_to_file()` which uses TShark to sniff an interface for a fixed window and write a PCAP, then reused the *existing* parse → store → detect pipeline on it (refactored the shared steps into `_analyse_pcap()` so upload and `/capture` are identical downstream). Nothing downstream knows whether a capture came from a file or the wire.
+- **Demo:** `docker-compose.yml` runs three containers on one isolated bridge network — `receiver` (dashboard + victim, captures its own `eth0`), `attacker` (nmap scan + SSH brute-force burst), and `client` (normal web baseline). `docker compose up`, click "Capture live traffic", and the attacker is caught within the window.
+- **Safety:** All traffic targets our own receiver on a private network; nothing leaves the host. The capture button is shown only when TShark is present.
+- **Verification:** End-to-end tested by capturing live loopback traffic while running the same nmap scan/brute-force locally — 494 packets captured, correctly flagged Port Scan, Brute Force and Suspicious Port (4444/31337).
+- **Scope note:** The synopsis listed live capture as out of scope; this is a deliberate extension beyond the planned milestones, documented as such.
 
 ## Known limitations / next steps
 - Current evaluation uses synthetic captures, so 100% TPR mainly validates correctness of the rules. Next: evaluate on public datasets (Wireshark samples, PCAP-ATTACK).
