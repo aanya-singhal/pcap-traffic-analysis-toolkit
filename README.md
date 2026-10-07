@@ -93,6 +93,8 @@ The demo brings up three containers on one isolated bridge network:
 ```bash
 docker compose up --build
 # open http://localhost:5001  ->  click "Capture live traffic (20s)"
+# view logs from all 3 containers:
+./view_logs.sh
 ```
 
 After ~20 s the dashboard shows the attacker's scan and brute-force **caught live** — Port Scan, Brute Force and Suspicious Port findings — standing out against the client's normal traffic. Everything targets our own receiver on an isolated network; nothing leaves the host.
