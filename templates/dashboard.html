@@ -46,6 +46,40 @@
   {% endfor %}
 </section>
 
+<!-- Exposed credentials (highlighted) -->
+{% set creds = findings | selectattr("rule", "equalto", "Credential Exposure") | list %}
+{% if creds %}
+<section class="rounded-xl border border-red-500/50 bg-red-500/10 p-6 mb-8">
+  <div class="flex items-center gap-2 mb-4">
+    <span class="text-2xl">🔓</span>
+    <h2 class="text-lg font-semibold text-red-200">Exposed credentials ({{ creds|length }}) — sent in cleartext</h2>
+  </div>
+  <p class="text-sm text-red-200/80 mb-4">
+    These logins were transmitted without encryption and recovered directly from the captured packets.
+    On an unencrypted protocol, anyone on the network path can read them.
+  </p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-red-300/70 border-b border-red-500/30">
+        <tr>
+          <th class="py-2 pr-4">Source</th><th class="py-2 pr-4">Target</th>
+          <th class="py-2 pr-4">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in creds %}
+        <tr class="border-b border-red-500/20 align-top">
+          <td class="py-3 pr-4 font-mono text-red-200">{{ c.src_ip or "—" }}</td>
+          <td class="py-3 pr-4 font-mono text-red-200">{{ c.dst_ip or "—" }}</td>
+          <td class="py-3 pr-4 text-red-100">{{ c.detail }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
 <!-- Findings -->
 <section class="rounded-xl border border-slate-800 bg-slate-900 p-6 mb-8">
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">

@@ -37,6 +37,7 @@ RULE_DESCRIPTIONS = {
     "Volume Anomaly": "A single host is responsible for a disproportionate share of total traffic.",
     "Suspicious Port": "Traffic to ports commonly associated with backdoors, malware or cleartext protocols.",
     "DNS Anomaly": "Unusually high DNS query volume from one host, or abnormally long domain names.",
+    "Credential Exposure": "A username and password were sent in cleartext (HTTP Basic Auth, an HTTP login form, or FTP) and recovered directly from the packet payload.",
 }
 
 

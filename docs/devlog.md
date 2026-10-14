@@ -58,3 +58,12 @@
 - PyShark parsing is the bottleneck (~2–18 s/MB). Larger captures may need a TShark field-export approach.
 - PDF summary report export.
 - Thresholds are fixed in code; could be made editable from the dashboard.
+
+## Feature: Cleartext credential exposure detection
+
+Added a sixth detection capability that recovers login credentials sent without encryption, a direct demonstration of why encrypted protocols matter.
+
+- **`detection/credentials.py`** reads raw TCP payloads with scapy (independent of the PyShark parser, so it needs no TShark) and extracts credentials from HTTP Basic Auth (`Authorization: Basic ...`), HTTP POST login forms (`username=...&password=...`), and FTP (`USER`/`PASS` on port 21).
+- Each disclosed login is reported as a **High-severity "Credential Exposure" finding** and shown in a highlighted panel on the dashboard, with the recovered username and password.
+- **`tests/generate_credential_pcap.py`** builds a safe sample capture (`samples/credential_leak.pcap`) with three cleartext logins using invented credentials.
+- Design choice: credential extraction reuses the existing finding schema (no DB change) and runs inside the same parse -> store -> detect pipeline, so the upload and live-capture flows both pick it up automatically.

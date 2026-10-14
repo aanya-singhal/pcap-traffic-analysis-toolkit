@@ -38,8 +38,20 @@ A lightweight web tool that takes an uploaded PCAP file, parses packet metadata 
 | Volume Anomaly | One host sends a disproportionate share of all bytes | ≥ 50% (min 100 packets, 3 hosts) |
 | Suspicious Port | Traffic to backdoor / cleartext ports (4444, 31337, 12345, 23, 6667, ...) | any |
 | DNS Anomaly | High query volume from one host, or very long domain names | 100 queries / 50 chars |
+| Credential Exposure | Usernames & passwords sent in cleartext (HTTP Basic Auth, HTTP login forms, FTP), recovered from the raw payload | any |
 
 Every finding states which host triggered it, the threshold used and the evidence count. Findings are indicators for investigation, not proof of malicious activity.
+
+### Credential exposure demo
+
+`detection/credentials.py` reads the raw TCP payloads (via scapy, independent of the main parser) and recovers any login sent without encryption. Exposed logins are shown in a highlighted panel on the dashboard — a direct demonstration of why HTTPS / FTPS / SSH exist.
+
+```bash
+python tests/generate_credential_pcap.py   # builds samples/credential_leak.pcap (fake logins)
+# then upload samples/credential_leak.pcap in the dashboard
+```
+
+The sample capture contains three cleartext logins (HTTP Basic Auth, an HTTP login form, and FTP), all using invented credentials.
 
 ## Setup and Run
 

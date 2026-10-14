@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 from parser.pcap_parser import parse_pcap, capture_to_file
 from database import db
 from detection.rules import run_all_rules, RULE_DESCRIPTIONS, THRESHOLDS
+from detection.credentials import extract_credentials, credentials_to_findings
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
@@ -106,6 +107,10 @@ def _analyse_pcap(path, filename, file_size):
         # 3. Detect
         t1 = time.time()
         findings = run_all_rules(conn, analysis_id)
+        # Cleartext credential exposure: read straight from the raw payloads and
+        # report each disclosed login as a High-severity finding.
+        creds = extract_credentials(path)
+        findings.extend(credentials_to_findings(creds))
         detect_seconds = time.time() - t1
         db.save_findings(conn, analysis_id, findings)
 
