@@ -22,6 +22,7 @@ THRESHOLDS = {
     "volume_share": 0.5,              # one host sending >= 50% of all bytes
     "volume_min_packets": 100,        # ignore tiny captures
     "volume_min_hosts": 3,            # ignore captures with only 1-2 hosts
+    "volume_min_bytes": 200_000,      # minimum 200 KB total capture volume to avoid false positives on normal web/CDN downloads
     "dns_max_queries_per_host": 100,  # DNS queries from a single host
     "dns_long_query_len": 50,         # very long domain names (possible tunneling)
     "syn_flood_min_syns": 50,         # minimum unacknowledged SYNs for SYN flood
@@ -49,7 +50,7 @@ RULE_DESCRIPTIONS = {
     "Brute Force": "Repeated connection attempts to an authentication service (SSH, FTP, RDP) within a short window attempting unauthorized credential discovery, violating Authentication.",
     "Port Scan": "Reconnaissance probes across multiple destination ports on a target host within a short window, violating Authentication.",
     "Suspicious Port": "Traffic to well-known backdoor, trojan, botnet C2, or legacy cleartext service ports.",
-    "Volume Anomaly": "A single host responsible for a disproportionate volume of total network traffic (exfiltration or bandwidth exhaustion), violating Availability.",
+    "Volume Anomaly": "A single host generating disproportionate traffic (>=50% across >=200 KB aggregate volume and multiple hosts) indicating potential bandwidth exhaustion or volumetric flooding, violating Availability.",
     "DNS Anomaly": "Unusually high DNS query volume or abnormally long query strings indicative of DNS tunneling or covert channel communication, violating Confidentiality.",
 }
 
@@ -414,12 +415,13 @@ def detect_syn_flood(conn, aid, t=THRESHOLDS):
 
 
 def detect_volume_anomaly(conn, aid, t=THRESHOLDS):
+    min_bytes = t.get("volume_min_bytes", 200000)
     total_pkts, total_bytes, hosts = conn.execute(
         """SELECT COUNT(*), COALESCE(SUM(length), 0), COUNT(DISTINCT src_ip)
            FROM packets WHERE analysis_id = ?""",
         (aid,),
     ).fetchone()
-    if total_pkts < t["volume_min_packets"] or hosts < t["volume_min_hosts"] or total_bytes == 0:
+    if total_pkts < t["volume_min_packets"] or hosts < t["volume_min_hosts"] or total_bytes < min_bytes:
         return []
 
     rows = conn.execute(
@@ -441,7 +443,7 @@ def detect_volume_anomaly(conn, aid, t=THRESHOLDS):
                 "dst_ip": None,
                 "detail": (f"{r['src_ip']} sent {share:.0%} of all bytes in the capture "
                            f"({r['bytes']:,} of {total_bytes:,} bytes, {r['pkts']} packets). "
-                           f"Threshold: {t['volume_share']:.0%}."),
+                           f"Threshold: {t['volume_share']:.0%} (min {min_bytes:,} bytes total)."),
                 "evidence_count": r["pkts"],
                 "evidence": f"Host {r['src_ip']} generated {r['bytes']:,} bytes ({share:.1%} of {total_bytes:,} total bytes) across {r['pkts']} packets",
             })

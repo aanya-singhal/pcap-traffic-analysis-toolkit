@@ -763,7 +763,7 @@ class TestBurstyBenignBrowsingAndZeroFPR(unittest.TestCase):
         pkts_2h = [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
              "src_port": 1234, "dst_port": 80, "transport": "TCP", "protocol": "TCP",
-             "length": 1000, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+             "length": 2000, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(150)
         ] + [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.2", "dst_ip": "10.0.0.1",
@@ -780,7 +780,7 @@ class TestBurstyBenignBrowsingAndZeroFPR(unittest.TestCase):
         pkts_99p = [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
              "src_port": 1234, "dst_port": 80, "transport": "TCP", "protocol": "TCP",
-             "length": 1000, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(97)
         ] + [
             {"timestamp": 1000.0, "src_ip": "10.0.0.2", "dst_ip": "10.0.0.1",
@@ -794,32 +794,59 @@ class TestBurstyBenignBrowsingAndZeroFPR(unittest.TestCase):
         findings_99p = rules.detect_volume_anomaly(self.conn, aid_99p)
         self.assertEqual(len(findings_99p), 0, "99 packets must NOT trigger Volume Anomaly (threshold >= 100 packets)")
 
-        # Case 3: 3 hosts, 100 packets, host 1 has 49% share (4900/10000) -> MUST NOT trigger
+        # Case 3: 3 hosts, 100 packets, host 1 has 49% share (122,500/250,000) -> MUST NOT trigger
         aid_49s = db.create_analysis(self.conn, "vol_49s.pcap", 1000)
         pkts_49s = [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
              "src_port": 1234, "dst_port": 80, "transport": "TCP", "protocol": "TCP",
-             "length": 100, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(49)
         ] + [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.2", "dst_ip": "10.0.0.1",
              "src_port": 80, "dst_port": 1234, "transport": "TCP", "protocol": "TCP",
-             "length": 100, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(26)
         ] + [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.3", "dst_ip": "10.0.0.1",
              "src_port": 80, "dst_port": 1234, "transport": "TCP", "protocol": "TCP",
-             "length": 100, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(25)
         ]
-        # Total bytes: 4900 + 2600 + 2500 = 10000 bytes. Max share is 10.0.0.1 (49.0% < 50.0%).
+        # Total bytes: 122,500 + 65,000 + 62,500 = 250,000 bytes (>= 200,000 guardrail).
+        # Max share is 10.0.0.1 (49.0% < 50.0%).
         db.insert_parsed(self.conn, aid_49s, {"packets": pkts_49s})
         findings_49s = rules.detect_volume_anomaly(self.conn, aid_49s)
         self.assertEqual(len(findings_49s), 0, "49% share must NOT trigger Volume Anomaly (threshold >= 50%)")
 
-        # Case 4: 3 hosts, 100 packets, host 1 has 50% share (5000/10000) -> MUST trigger
+        # Case 4: 3 hosts, 100 packets, host 1 has 50% share (125,000/250,000) -> MUST trigger
         aid_50s = db.create_analysis(self.conn, "vol_50s.pcap", 1000)
         pkts_50s = [
+            {"timestamp": 1000.0 + i, "src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
+             "src_port": 1234, "dst_port": 80, "transport": "TCP", "protocol": "TCP",
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+            for i in range(50)
+        ] + [
+            {"timestamp": 1000.0 + i, "src_ip": "10.0.0.2", "dst_ip": "10.0.0.1",
+             "src_port": 80, "dst_port": 1234, "transport": "TCP", "protocol": "TCP",
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+            for i in range(25)
+        ] + [
+            {"timestamp": 1000.0 + i, "src_ip": "10.0.0.3", "dst_ip": "10.0.0.1",
+             "src_port": 80, "dst_port": 1234, "transport": "TCP", "protocol": "TCP",
+             "length": 2500, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
+            for i in range(25)
+        ]
+        # Total bytes: 125,000 + 62,500 + 62,500 = 250,000 bytes (>= 200,000 guardrail).
+        # 10.0.0.1 = 50.0% >= 50.0% -> triggers!
+        db.insert_parsed(self.conn, aid_50s, {"packets": pkts_50s})
+        findings_50s = rules.detect_volume_anomaly(self.conn, aid_50s)
+        self.assertEqual(len(findings_50s), 1, "50% share MUST trigger Volume Anomaly")
+        self.assertEqual(findings_50s[0]["rule"], "Volume Anomaly")
+        self.assertEqual(findings_50s[0]["pillar"], "Availability")
+
+        # Case 5: 3 hosts, 100 packets, host 1 has 50% share, but total bytes 10,000 < 200,000 guardrail -> MUST NOT trigger
+        aid_low_bytes = db.create_analysis(self.conn, "vol_low_bytes.pcap", 1000)
+        pkts_low_bytes = [
             {"timestamp": 1000.0 + i, "src_ip": "10.0.0.1", "dst_ip": "10.0.0.2",
              "src_port": 1234, "dst_port": 80, "transport": "TCP", "protocol": "TCP",
              "length": 100, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
@@ -835,12 +862,11 @@ class TestBurstyBenignBrowsingAndZeroFPR(unittest.TestCase):
              "length": 100, "syn": False, "ack": True, "rst": False, "fin": False, "psh": False, "urg": False}
             for i in range(25)
         ]
-        # Total bytes: 5000 + 2500 + 2500 = 10000 bytes. 10.0.0.1 = 50.0% >= 50.0% -> triggers!
-        db.insert_parsed(self.conn, aid_50s, {"packets": pkts_50s})
-        findings_50s = rules.detect_volume_anomaly(self.conn, aid_50s)
-        self.assertEqual(len(findings_50s), 1, "50% share MUST trigger Volume Anomaly")
-        self.assertEqual(findings_50s[0]["rule"], "Volume Anomaly")
-        self.assertEqual(findings_50s[0]["pillar"], "Availability")
+        # Total bytes: 5,000 + 2,500 + 2,500 = 10,000 bytes (< 200,000 bytes minimum).
+        # Even though share is 50%, packet count is 100, and hosts are 3, this is normal light traffic.
+        db.insert_parsed(self.conn, aid_low_bytes, {"packets": pkts_low_bytes})
+        findings_low_bytes = rules.detect_volume_anomaly(self.conn, aid_low_bytes)
+        self.assertEqual(len(findings_low_bytes), 0, "Total bytes below volume_min_bytes (200 KB) must NOT trigger Volume Anomaly")
 
 
 class TestPostureScoringBoundaries(unittest.TestCase):
