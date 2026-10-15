@@ -15,4 +15,9 @@ uploads/*
 # Generated reports
 reports/
 
+# PCAPs (ignore root/test pcaps, keep samples)
 *.pcap
+!samples/*.pcap
+
+# Internal Agent artifacts
+.agents/

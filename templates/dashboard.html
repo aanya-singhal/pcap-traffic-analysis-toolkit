@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Analysis #{{ analysis.id }} · PCAP Analysis Toolkit{% endblock %}
+{% block title %}Analysis #{{ analysis.id }} · CIA Security Posture Dashboard{% endblock %}
 {% block content %}
 
 {% macro human_bytes(n) -%}
@@ -8,27 +8,173 @@
   {%- else -%}{{ n }} B{%- endif -%}
 {%- endmacro %}
 
+{% set pillar_style = {
+  "Confidentiality": "bg-purple-500/15 text-purple-300 border-purple-500/40",
+  "Integrity": "bg-cyan-500/15 text-cyan-300 border-cyan-500/40",
+  "Authentication": "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  "Availability": "bg-rose-500/15 text-rose-300 border-rose-500/40"
+} %}
+
+{% set pillar_icons = {
+  "Confidentiality": "🔒",
+  "Integrity": "🛡️",
+  "Authentication": "🔑",
+  "Availability": "⚡"
+} %}
+
 {% set sev_style = {
   "High": "bg-red-500/15 text-red-300 border-red-500/40",
   "Medium": "bg-amber-500/15 text-amber-300 border-amber-500/40",
   "Low": "bg-sky-500/15 text-sky-300 border-sky-500/40"
 } %}
 
+{% set status_style = {
+  "PASS": "bg-emerald-500/15 text-emerald-400 border-emerald-500/40",
+  "WARNING": "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  "FAIL": "bg-rose-500/15 text-rose-300 border-rose-500/40"
+} %}
+
 <!-- Header -->
 <section class="mb-8 flex flex-wrap items-end justify-between gap-4">
   <div>
-    <div class="text-xs uppercase tracking-wider text-slate-500">Analysis #{{ analysis.id }}</div>
-    <h1 class="text-2xl font-bold text-slate-100 font-mono break-all">{{ analysis.filename }}</h1>
+    <div class="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500">
+      <span>Analysis #{{ analysis.id }}</span>
+      <span>•</span>
+      <span class="text-emerald-400 font-medium">CIA Triad Platform</span>
+    </div>
+    <h1 class="text-2xl font-bold text-slate-100 font-mono break-all mt-1">{{ analysis.filename }}</h1>
     <p class="text-sm text-slate-400 mt-1">
       {{ human_bytes(analysis.file_size or 0) }} capture ·
       parsed in {{ "%.2f"|format(analysis.parse_seconds or 0) }}s ·
-      rules ran in {{ "%.3f"|format(analysis.detect_seconds or 0) }}s
+      rules evaluated in {{ "%.3f"|format(analysis.detect_seconds or 0) }}s
     </p>
   </div>
-  <a href="/" class="text-sm px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium">Analyse another file</a>
+  <div class="flex items-center gap-3">
+    <a href="/" class="text-sm px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition">
+      + New analysis
+    </a>
+  </div>
 </section>
 
-<!-- Summary cards -->
+<!-- Executive CIA Security Posture Score (0-100) -->
+<section class="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-950 p-6 md:p-8 mb-8 shadow-xl">
+  <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+    <div class="flex-1">
+      <div class="flex flex-wrap items-center gap-3 mb-2">
+        <span class="text-xs uppercase tracking-widest text-slate-400 font-semibold">Executive Security Posture</span>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold border {{ posture_band.badge_class }}">
+          {{ posture_band.rating }}
+        </span>
+      </div>
+      <h2 class="text-3xl font-extrabold text-slate-100 tracking-tight">
+        CIA Security Health Score
+      </h2>
+      <p class="text-sm text-slate-400 mt-2 max-w-2xl leading-relaxed">
+        {{ posture_band.description }}
+      </p>
+
+      <!-- Score Progress Bar -->
+      <div class="mt-5 w-full bg-slate-800/80 rounded-full h-3 overflow-hidden border border-slate-700/50">
+        <div class="h-full rounded-full transition-all duration-700 {{ posture_band.bar_class }}"
+             style="width: {{ posture_score }}%;"></div>
+      </div>
+
+      <!-- Quick Metrics Summary -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800/80">
+        <div>
+          <div class="text-xs text-slate-500 font-medium">Total Violations</div>
+          <div class="text-lg font-bold text-slate-200 mt-0.5">{{ findings|length }}</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 font-medium">High / Med / Low</div>
+          <div class="text-lg font-bold text-slate-200 mt-0.5">
+            <span class="text-red-400">{{ severity_counts.High }}</span> /
+            <span class="text-amber-400">{{ severity_counts.Medium }}</span> /
+            <span class="text-sky-400">{{ severity_counts.Low }}</span>
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 font-medium">Primary Risk Pillar</div>
+          <div class="text-lg font-bold text-slate-200 mt-0.5">
+            {% if primary_risk_pillar != "None" %}
+              <span class="text-rose-400">{{ primary_risk_pillar }}</span>
+            {% else %}
+              <span class="text-emerald-400">None (Clean)</span>
+            {% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 font-medium">Evaluation Standard</div>
+          <div class="text-lg font-bold text-slate-200 mt-0.5 font-mono text-xs">RFC 793/826/4987</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Posture Big Number Card -->
+    <div class="flex flex-col items-center justify-center bg-slate-950/70 border border-slate-800 rounded-2xl p-6 min-w-[200px] text-center shadow-inner">
+      <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Posture Score</div>
+      <div class="text-6xl font-extrabold tracking-tight {{ 'text-emerald-400' if posture_score >= 90 else ('text-amber-400' if posture_score >= 70 else ('text-orange-400' if posture_score >= 40 else 'text-rose-400')) }}">
+        {{ posture_score }}
+      </div>
+      <div class="text-xs text-slate-500 font-mono mt-1">out of 100</div>
+      <div class="mt-3 text-xs text-slate-400 font-medium">
+        {{ 100 - posture_score }} pts deducted
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Four CIA Status Indicator Cards -->
+<section class="mb-8">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold text-slate-100 flex items-center gap-2">
+      <span>Four Pillars Status</span>
+      <span class="text-xs font-normal text-slate-400">(CIA Triad + Authentication)</span>
+    </h2>
+  </div>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    {% for pillar in ["Confidentiality", "Integrity", "Authentication", "Availability"] %}
+      {% set card = pillar_cards[pillar] %}
+      <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 flex flex-col justify-between hover:border-slate-700 transition">
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">{{ pillar_icons[pillar] }}</span>
+              <span class="font-semibold text-slate-200">{{ pillar }}</span>
+            </div>
+            <span class="px-2.5 py-0.5 rounded text-xs font-bold border {{ status_style[card.status] }}">
+              {{ card.status }}
+            </span>
+          </div>
+
+          <div class="flex items-baseline justify-between mt-2">
+            <span class="text-xs text-slate-500 font-medium">Pillar Health</span>
+            <span class="text-lg font-bold text-slate-100">{{ card.score }} <span class="text-xs text-slate-500 font-normal">/ 25</span></span>
+          </div>
+
+          <!-- Mini Pillar Health Bar -->
+          <div class="mt-2 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div class="h-full rounded-full {{ 'bg-emerald-500' if card.status == 'PASS' else ('bg-amber-500' if card.status == 'WARNING' else 'bg-rose-500') }}"
+                 style="width: {{ (card.score / 25 * 100)|round }}%;"></div>
+          </div>
+
+          <p class="text-xs text-slate-400 mt-3 leading-relaxed">
+            {{ card.summary }}
+          </p>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
+          <span>Violations:</span>
+          <span class="font-mono font-medium {{ 'text-rose-400' if card.violations_count > 0 else 'text-emerald-400' }}">
+            {{ card.violations_count }}
+          </span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- Traffic Summary cards -->
 <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
   {% set cards = [
     ("Packets", "{:,}".format(summary.total_packets)),
@@ -46,41 +192,102 @@
   {% endfor %}
 </section>
 
-<!-- Findings -->
+<!-- Enhanced Findings Section -->
 <section class="rounded-xl border border-slate-800 bg-slate-900 p-6 mb-8">
-  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-    <h2 class="text-lg font-semibold text-slate-100">Security findings ({{ findings|length }})</h2>
-    <div class="flex gap-2 text-xs">
+  <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Security Findings ({{ findings|length }})</h2>
+      <p class="text-xs text-slate-400 mt-0.5">Threats detected and mapped across the CIA Triad</p>
+    </div>
+    <div class="flex flex-wrap gap-2 text-xs">
       {% for level in ["High", "Medium", "Low"] %}
-        <span class="px-2.5 py-1 rounded-md border {{ sev_style[level] }}">{{ level }}: {{ severity_counts[level] }}</span>
+        <span class="px-2.5 py-1 rounded-md border {{ sev_style[level] }} font-medium">
+          {{ level }}: {{ severity_counts[level] }}
+        </span>
       {% endfor %}
     </div>
   </div>
 
+  <!-- Interactive Filter Tabs -->
+  <div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-slate-800">
+    <button type="button" onclick="filterFindings('all')" id="tab-all"
+            class="filter-tab px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white transition">
+      All ({{ findings|length }})
+    </button>
+    {% for pillar in ["Confidentiality", "Integrity", "Authentication", "Availability"] %}
+      <button type="button" onclick="filterFindings('{{ pillar }}')" id="tab-{{ pillar }}"
+              class="filter-tab px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1.5">
+        <span>{{ pillar_icons[pillar] }}</span>
+        <span>{{ pillar }}</span>
+        <span class="px-1.5 py-0.2 rounded-full bg-slate-900 text-slate-400 text-[10px]">
+          {{ pillar_counts[pillar] }}
+        </span>
+      </button>
+    {% endfor %}
+  </div>
+
   {% if findings %}
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
+      <table id="findings-table" class="w-full text-sm">
         <thead class="text-left text-slate-500 border-b border-slate-800">
-          <tr><th class="py-2 pr-4">Severity</th><th class="py-2 pr-4">Rule</th><th class="py-2 pr-4">Source</th>
-              <th class="py-2 pr-4">Target</th><th class="py-2 pr-4">Why it was flagged</th><th class="py-2">Evidence</th></tr>
+          <tr>
+            <th class="py-2.5 pr-3">CIA Pillar</th>
+            <th class="py-2.5 pr-3">Severity</th>
+            <th class="py-2.5 pr-4">Rule</th>
+            <th class="py-2.5 pr-4">Source</th>
+            <th class="py-2.5 pr-4">Target</th>
+            <th class="py-2.5 pr-4">Why Flagged</th>
+            <th class="py-2.5">Cleartext Evidence / Artifact</th>
+          </tr>
         </thead>
         <tbody>
           {% for f in findings %}
-          <tr class="border-b border-slate-800/60 align-top">
-            <td class="py-3 pr-4"><span class="px-2 py-0.5 rounded border text-xs {{ sev_style[f.severity] }}">{{ f.severity }}</span></td>
-            <td class="py-3 pr-4 font-medium text-slate-200 whitespace-nowrap">{{ f.rule }}</td>
-            <td class="py-3 pr-4 font-mono text-slate-300">{{ f.src_ip or "—" }}</td>
-            <td class="py-3 pr-4 font-mono text-slate-300">{{ f.dst_ip or "—" }}</td>
-            <td class="py-3 pr-4 text-slate-400">{{ f.detail }}</td>
-            <td class="py-3 text-slate-300">{{ f.evidence_count }} pkts</td>
+          <tr class="finding-row border-b border-slate-800/60 align-top hover:bg-slate-800/30 transition"
+              data-pillar="{{ f.pillar }}">
+            <td class="py-3 pr-3 whitespace-nowrap">
+              <span class="px-2.5 py-1 rounded-md border text-xs font-semibold {{ pillar_style.get(f.pillar, 'bg-slate-800 text-slate-300 border-slate-700') }}">
+                {{ pillar_icons.get(f.pillar, '') }} {{ f.pillar }}
+              </span>
+            </td>
+            <td class="py-3 pr-3 whitespace-nowrap">
+              <span class="px-2.5 py-0.5 rounded border text-xs font-medium {{ sev_style.get(f.severity, 'bg-slate-800 text-slate-300') }}">
+                {{ f.severity }}
+              </span>
+            </td>
+            <td class="py-3 pr-4 font-semibold text-slate-200 whitespace-nowrap">
+              {{ f.rule }}
+            </td>
+            <td class="py-3 pr-4 font-mono text-xs text-slate-300 whitespace-nowrap">
+              {{ f.src_ip or "—" }}
+            </td>
+            <td class="py-3 pr-4 font-mono text-xs text-slate-300 whitespace-nowrap">
+              {{ f.dst_ip or "—" }}
+            </td>
+            <td class="py-3 pr-4 text-xs text-slate-400 leading-relaxed max-w-md">
+              {{ f.detail }}
+            </td>
+            <td class="py-3 font-mono text-xs text-slate-200">
+              {% if f.evidence %}
+                <div class="bg-slate-950/80 border border-slate-800 rounded px-2.5 py-1.5 max-w-sm overflow-x-auto whitespace-pre-wrap break-all text-emerald-400">
+                  {{ f.evidence }}
+                </div>
+              {% else %}
+                <span class="text-slate-500 font-sans text-xs">{{ f.evidence_count }} pkts</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
+          <tr id="no-matching-row" class="hidden">
+            <td colspan="7" class="py-8 text-center text-slate-500 text-sm">
+              No findings match the selected CIA pillar filter.
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
   {% else %}
-    <div class="px-4 py-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">
-      No rules were triggered for this capture at the current thresholds.
+    <div class="px-4 py-6 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm text-center">
+      🛡️ Zero threats detected. All network telemetry adheres to the nominal baseline.
     </div>
   {% endif %}
 </section>
@@ -123,6 +330,7 @@
     {% endif %}
   </div>
 </section>
+
 
 <!-- Rule reference -->
 <section class="rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -181,5 +389,36 @@
             datasets: [{ label: "Packets", data: data.ports.values, backgroundColor: "#fbbf24" }] },
     options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
   });
+
+  // Client-side CIA Pillar findings tab filter
+  function filterFindings(pillar) {
+    const rows = document.querySelectorAll(".finding-row");
+    const tabs = document.querySelectorAll(".filter-tab");
+    let visibleCount = 0;
+
+    tabs.forEach(tab => {
+      tab.classList.remove("bg-emerald-600", "text-white");
+      tab.classList.add("bg-slate-800/80", "text-slate-300");
+    });
+    const activeTab = document.getElementById("tab-" + (pillar === "all" ? "all" : pillar));
+    if (activeTab) {
+      activeTab.classList.remove("bg-slate-800/80", "text-slate-300");
+      activeTab.classList.add("bg-emerald-600", "text-white");
+    }
+
+    rows.forEach(row => {
+      if (pillar === "all" || row.dataset.pillar === pillar) {
+        row.style.display = "";
+        visibleCount++;
+      } else {
+        row.style.display = "none";
+      }
+    });
+
+    const noRow = document.getElementById("no-matching-row");
+    if (noRow) {
+      noRow.classList.toggle("hidden", visibleCount > 0);
+    }
+  }
 </script>
 {% endblock %}
