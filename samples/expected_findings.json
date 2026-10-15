@@ -1,17 +1,72 @@
 {
-  "normal_traffic.pcap": [],
-  "port_scan.pcap": [
-    "Port Scan",
-    "Suspicious Port"
-  ],
-  "brute_force_ssh.pcap": [
-    "Brute Force"
-  ],
-  "volume_exfil.pcap": [
-    "Volume Anomaly"
-  ],
-  "dns_tunnel_c2.pcap": [
-    "DNS Anomaly",
-    "Suspicious Port"
-  ]
+  "normal_traffic.pcap": {
+    "expected_rules": [],
+    "expected_pillars": []
+  },
+  "cleartext_credentials.pcap": {
+    "expected_rules": [
+      "Cleartext Credentials"
+    ],
+    "expected_pillars": [
+      "Confidentiality"
+    ]
+  },
+  "arp_spoofing.pcap": {
+    "expected_rules": [
+      "ARP Cache Poisoning"
+    ],
+    "expected_pillars": [
+      "Integrity"
+    ]
+  },
+  "tcp_evasion.pcap": {
+    "expected_rules": [
+      "TCP Flag Evasion"
+    ],
+    "expected_pillars": [
+      "Integrity"
+    ]
+  },
+  "syn_flood.pcap": {
+    "expected_rules": [
+      "TCP SYN Flood"
+    ],
+    "expected_pillars": [
+      "Availability"
+    ]
+  },
+  "brute_force_ssh.pcap": {
+    "expected_rules": [
+      "Brute Force"
+    ],
+    "expected_pillars": [
+      "Authentication"
+    ]
+  },
+  "port_scan.pcap": {
+    "expected_rules": [
+      "Port Scan",
+      "Suspicious Port"
+    ],
+    "expected_pillars": [
+      "Authentication"
+    ]
+  },
+  "volume_exfil.pcap": {
+    "expected_rules": [
+      "Volume Anomaly"
+    ],
+    "expected_pillars": [
+      "Availability"
+    ]
+  },
+  "dns_tunnel_c2.pcap": {
+    "expected_rules": [
+      "DNS Anomaly",
+      "Suspicious Port"
+    ],
+    "expected_pillars": [
+      "Confidentiality"
+    ]
+  }
 }

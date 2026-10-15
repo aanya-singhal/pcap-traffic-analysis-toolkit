@@ -30,21 +30,40 @@
 
     {% if live_capture %}
     <div class="mt-6 pt-6 border-t border-slate-800">
-      <div class="flex items-start gap-3">
+      <div class="flex items-start gap-3 mb-4">
         <div class="text-2xl">📡</div>
         <div class="flex-1">
           <div class="text-slate-200 font-medium">Capture live traffic</div>
           <div class="text-sm text-slate-400 mt-0.5">
-            Sniff this host's interface (<span class="font-mono">{{ capture_iface }}</span>) for
-            {{ capture_seconds }}s, then run the same pipeline on it. Used by the Docker demo to catch
-            an attacker container in real time.
+            Sniff traffic from an active network interface and evaluate packets live against the CIA Triad threat rules.
           </div>
         </div>
       </div>
-      <form id="capture-form" action="{{ url_for('capture') }}" method="post">
+      <form id="capture-form" action="{{ url_for('capture') }}" method="post" class="space-y-4">
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label for="iface-select" class="block text-xs font-medium text-slate-400 mb-1.5">Network Interface</label>
+            <select id="iface-select" name="interface" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 font-mono">
+              {% for iface in interfaces %}
+                <option value="{{ iface.name }}" {% if iface.name == capture_iface %}selected{% endif %}>
+                  {{ iface.description }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="duration-select" class="block text-xs font-medium text-slate-400 mb-1.5">Capture Window</label>
+            <select id="duration-select" name="seconds" class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
+              <option value="10">10 seconds</option>
+              <option value="15" selected>15 seconds (recommended)</option>
+              <option value="20">20 seconds</option>
+              <option value="30">30 seconds</option>
+            </select>
+          </div>
+        </div>
         <button id="capture-btn" type="submit"
-                class="mt-4 w-full py-3 rounded-lg border border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10 font-semibold transition disabled:opacity-60 disabled:cursor-wait">
-          Capture live traffic ({{ capture_seconds }}s)
+                class="w-full py-3 rounded-lg border border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10 font-semibold transition disabled:opacity-60 disabled:cursor-wait">
+          Start Live Capture
         </button>
       </form>
     </div>
@@ -64,21 +83,55 @@
 
   <!-- Rules card -->
   <section class="rounded-xl border border-slate-800 bg-slate-900 p-6">
-    <h2 class="text-lg font-semibold text-slate-100 mb-4">Detection rules</h2>
-    <ul class="space-y-3 text-sm">
-      {% for name, desc in [
-        ("Port Scan", "Many distinct ports contacted by one source in a short window"),
-        ("Brute Force", "Repeated connection attempts to a login service"),
-        ("Volume Anomaly", "One host sending a disproportionate share of traffic"),
-        ("Suspicious Port", "Traffic to known backdoor / cleartext ports"),
-        ("DNS Anomaly", "High query volume or abnormally long domain names")
-      ] %}
-        <li class="flex gap-3">
-          <span class="mt-1.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-          <div><div class="text-slate-200 font-medium">{{ name }}</div><div class="text-slate-400">{{ desc }}</div></div>
-        </li>
-      {% endfor %}
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-100">CIA Threat Engine</h2>
+      <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">9 Rules</span>
+    </div>
+    <ul class="space-y-3.5 text-xs">
+      <li class="flex gap-2.5">
+        <span class="mt-1 w-2 h-2 rounded-full bg-purple-400 shrink-0"></span>
+        <div>
+          <div class="text-slate-200 font-semibold flex items-center gap-1.5">
+            <span>Confidentiality</span>
+            <span class="text-[10px] text-purple-300 font-normal">RFC 7617, 959, 1035</span>
+          </div>
+          <div class="text-slate-400 mt-0.5">Cleartext credentials (HTTP/FTP) & DNS covert tunneling exfiltration</div>
+        </div>
+      </li>
+      <li class="flex gap-2.5">
+        <span class="mt-1 w-2 h-2 rounded-full bg-cyan-400 shrink-0"></span>
+        <div>
+          <div class="text-slate-200 font-semibold flex items-center gap-1.5">
+            <span>Integrity</span>
+            <span class="text-[10px] text-cyan-300 font-normal">RFC 826, 793</span>
+          </div>
+          <div class="text-slate-400 mt-0.5">ARP cache poisoning (MITM) & TCP flag evasion (Xmas/Null scans)</div>
+        </div>
+      </li>
+      <li class="flex gap-2.5">
+        <span class="mt-1 w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+        <div>
+          <div class="text-slate-200 font-semibold flex items-center gap-1.5">
+            <span>Authentication</span>
+            <span class="text-[10px] text-amber-300 font-normal">NIST 800-63B</span>
+          </div>
+          <div class="text-slate-400 mt-0.5">Rapid credential brute-force bursts & unauthorized port reconnaissance</div>
+        </div>
+      </li>
+      <li class="flex gap-2.5">
+        <span class="mt-1 w-2 h-2 rounded-full bg-rose-400 shrink-0"></span>
+        <div>
+          <div class="text-slate-200 font-semibold flex items-center gap-1.5">
+            <span>Availability</span>
+            <span class="text-[10px] text-rose-300 font-normal">RFC 4987</span>
+          </div>
+          <div class="text-slate-400 mt-0.5">TCP SYN flood resource exhaustion & abnormal bandwidth volume spikes</div>
+        </div>
+      </li>
     </ul>
+    <div class="mt-5 pt-4 border-t border-slate-800 text-[11px] text-slate-500">
+      Executive scoring evaluates all 4 pillars (0–25 each) for a 0–100 posture score.
+    </div>
   </section>
 </div>
 
@@ -134,8 +187,10 @@
   if (captureForm) {
     captureForm.addEventListener("submit", () => {
       const cbtn = document.getElementById("capture-btn");
+      const iface = document.getElementById("iface-select") ? document.getElementById("iface-select").value : "interface";
+      const secs = document.getElementById("duration-select") ? document.getElementById("duration-select").value : "15";
       cbtn.disabled = true;
-      cbtn.textContent = "Capturing live traffic… watching the wire";
+      cbtn.textContent = `Capturing live on ${iface} (${secs}s)… watching the wire`;
     });
   }
 </script>
