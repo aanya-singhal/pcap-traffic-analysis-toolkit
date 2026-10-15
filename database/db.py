@@ -211,13 +211,18 @@ def create_analysis(conn, filename, file_size):
 def update_analysis(conn, analysis_id, **fields):
     ALLOWED = {
         "filename", "file_size", "packet_count", "duration_seconds",
+        "parse_seconds", "detect_seconds",
         "parse_duration_seconds", "detect_duration_seconds"
     }
-    valid_fields = {k: (_clean_str(v) if isinstance(v, str) else v) for k, v in fields.items() if k in ALLOWED}
-    if not valid_fields:
+    remapped = {}
+    for k, v in fields.items():
+        if k in ALLOWED:
+            target_col = "parse_seconds" if k == "parse_duration_seconds" else ("detect_seconds" if k == "detect_duration_seconds" else k)
+            remapped[target_col] = _clean_str(v) if isinstance(v, str) else v
+    if not remapped:
         return
-    cols = ", ".join(f"{k} = ?" for k in valid_fields)
-    conn.execute(f"UPDATE analyses SET {cols} WHERE id = ?", (*valid_fields.values(), analysis_id))
+    cols = ", ".join(f"{k} = ?" for k in remapped)
+    conn.execute(f"UPDATE analyses SET {cols} WHERE id = ?", (*remapped.values(), analysis_id))
     conn.commit()
 
 

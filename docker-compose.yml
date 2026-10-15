@@ -1,16 +1,11 @@
-# Live-capture demo: three containers on one private network.
+# Live-capture demo: three containers with host visibility.
 #
-#   receiver  - runs the dashboard AND is the victim; captures its own eth0
-#   attacker  - loops an nmap port scan + an SSH brute-force burst at receiver
-#   client    - loops normal web requests at receiver (benign baseline)
-#
-# Usage:
-#   docker compose up --build
-#   open http://localhost:5001  ->  click "Capture live traffic (20s)"
-#   the dashboard shows the attacker's scan and brute-force caught live.
-#
-# Everything targets our own receiver on an isolated bridge network; nothing
-# leaves the host.
+#   receiver  - runs the dashboard with network_mode: "host" so it can view
+#               and capture real physical interfaces (wlo1, etc.) as well as
+#               Docker bridge interfaces (docker0, br-*, lo, any).
+#   attacker  - loops an nmap port scan + an SSH brute-force burst targeting
+#               the receiver via the host gateway.
+#   client    - loops normal web requests at receiver (benign baseline).
 
 services:
   receiver:
@@ -18,17 +13,17 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pcap-receiver
-    ports:
-      - "5001:5001"
+    network_mode: "host"
     environment:
-      CAPTURE_IFACE: eth0
-      CAPTURE_SECONDS: "20"
-    # TShark/dumpcap needs these to sniff the interface.
+      PORT: "5001"
+      CAPTURE_SECONDS: "15"
+    # TShark/dumpcap needs raw network socket capabilities
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    networks:
-      - lab
+    volumes:
+      - ./toolkit.db:/app/toolkit.db
+      - ./uploads:/app/uploads
 
   attacker:
     build:
@@ -38,6 +33,8 @@ services:
     command: ["/attacker.sh"]
     environment:
       TARGET: receiver
+    extra_hosts:
+      - "receiver:host-gateway"
     # nmap -sS (SYN scan) needs raw sockets.
     cap_add:
       - NET_RAW
@@ -56,6 +53,8 @@ services:
     environment:
       TARGET: receiver
       PORT: "5001"
+    extra_hosts:
+      - "receiver:host-gateway"
     depends_on:
       - receiver
     networks:
