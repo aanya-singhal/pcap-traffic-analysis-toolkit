@@ -481,3 +481,119 @@ def get_credentials(conn, analysis_id):
         (analysis_id,),
     ).fetchall()
 
+
+# ---------- Verify-on-PCAP: packet-level evidence for a finding ----------
+
+_EVID_BRUTE_PORTS = [21, 22, 23, 25, 110, 143, 445, 3306, 3389, 5900]
+_EVID_SUSPICIOUS_PORTS = [23, 4444, 6667, 31337, 12345, 5555, 1337]
+_EVID_FLAG_COLS = [("SYN", "syn"), ("ACK", "ack"), ("RST", "rst"),
+                   ("FIN", "fin"), ("PSH", "psh"), ("URG", "urg")]
+
+
+def _evid_flag_str(row):
+    flags = [name for name, col in _EVID_FLAG_COLS if row[col]]
+    return ",".join(flags) if flags else "\u2014"
+
+
+def _evid_packet_rows(cur, limit):
+    out = []
+    for i, r in enumerate(cur[:limit]):
+        sp = ":%s" % r["src_port"] if r["src_port"] is not None else ""
+        dp = ":%s" % r["dst_port"] if r["dst_port"] is not None else ""
+        ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014"
+        out.append([i + 1, ts, "%s%s" % (r["src_ip"], sp), "%s%s" % (r["dst_ip"], dp),
+                    r["protocol"] or r["transport"] or "\u2014", _evid_flag_str(r)])
+    return out
+
+
+def get_finding_evidence(conn, analysis_id, finding, limit=60):
+    """Return the actual capture records that triggered a finding, so a detection
+    can be verified packet-by-packet on the PCAP.
+    Returns {"headers": [...], "rows": [[...]], "caption": str, "count": int}."""
+    rule = finding.get("rule") or ""
+    src = finding.get("src_ip")
+    dst = finding.get("dst_ip")
+    headers, rows, caption = [], [], ""
+
+    if rule == "Cleartext Credentials":
+        cur = conn.execute(
+            """SELECT timestamp, protocol, type, detail FROM credentials
+               WHERE analysis_id = ? AND (? IS NULL OR src_ip = ?) AND (? IS NULL OR dst_ip = ?)
+               ORDER BY timestamp LIMIT ?""",
+            (analysis_id, src, src, dst, dst, limit)).fetchall()
+        headers = ["Time", "Protocol", "Type", "Recovered credential (cleartext)"]
+        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
+                 r["protocol"] or "\u2014", r["type"] or "\u2014", r["detail"] or "\u2014"] for r in cur]
+        caption = "Credentials recovered directly from the unencrypted packet payloads \u2014 point at these to prove the Confidentiality breach."
+
+    elif rule == "DNS Anomaly":
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, query FROM dns_queries
+               WHERE analysis_id = ? AND is_response = 0 AND (? IS NULL OR src_ip = ?)
+               ORDER BY LENGTH(query) DESC, timestamp LIMIT ?""",
+            (analysis_id, src, src, limit)).fetchall()
+        headers = ["Time", "Source", "DNS query name (data leaving the network)", "Length"]
+        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
+                 r["src_ip"] or "\u2014", r["query"] or "\u2014", len(r["query"] or "")] for r in cur]
+        caption = ("Each query name is data leaving the network, encoded as a DNS lookup. "
+                   "This is exactly why DNS tunneling is a Confidentiality (data-exfiltration) violation.")
+
+    elif rule == "ARP Cache Poisoning":
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, src_mac FROM arp_records
+               WHERE analysis_id = ? AND src_ip = ? AND src_mac IS NOT NULL
+               ORDER BY timestamp LIMIT ?""",
+            (analysis_id, src, limit)).fetchall()
+        headers = ["Time", "Claimed IP", "Source MAC"]
+        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
+                 r["src_ip"] or "\u2014", r["src_mac"] or "\u2014"] for r in cur]
+        caption = "The same IP is claimed by more than one MAC address \u2014 the signature of ARP cache poisoning / MITM."
+
+    else:
+        q = ("SELECT timestamp, src_ip, dst_ip, src_port, dst_port, transport, protocol, "
+             "syn, ack, rst, fin, psh, urg FROM packets WHERE analysis_id = ?")
+        params = [analysis_id]
+        ordered = False
+        if rule == "Port Scan":
+            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0"
+            caption = "Each row is a TCP SYN probe to a different port \u2014 the fingerprint of a port scan."
+        elif rule == "Brute Force":
+            ph = ",".join("?" * len(_EVID_BRUTE_PORTS))
+            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0 AND dst_port IN (%s)" % ph
+            params += _EVID_BRUTE_PORTS
+            caption = "Repeated connection attempts to a login service."
+        elif rule == "Suspicious Port":
+            ph = ",".join("?" * len(_EVID_SUSPICIOUS_PORTS))
+            q += " AND dst_port IN (%s)" % ph
+            params += _EVID_SUSPICIOUS_PORTS
+            caption = "Traffic to a known backdoor / cleartext service port."
+        elif rule == "TCP Flag Evasion":
+            q += (" AND transport = 'TCP' AND ((fin=1 AND psh=1 AND urg=1 AND syn=0 AND ack=0) "
+                  "OR (syn=0 AND ack=0 AND rst=0 AND fin=0 AND psh=0 AND urg=0))")
+            caption = "Packets with illegal TCP flag combinations (Xmas / Null) violating RFC 793."
+        elif rule == "TCP SYN Flood":
+            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0"
+            caption = "A flood of unacknowledged SYN packets aimed at one target."
+        elif rule == "Volume Anomaly":
+            caption = "The largest packets sent by the host that dominated the capture."
+
+        if rule not in ("TCP SYN Flood", "Volume Anomaly") and src:
+            q += " AND src_ip = ?"; params.append(src)
+        if rule != "Volume Anomaly" and dst:
+            q += " AND dst_ip = ?"; params.append(dst)
+        if rule == "Volume Anomaly" and src:
+            q += " AND src_ip = ?"; params.append(src)
+
+        if rule == "Volume Anomaly":
+            q += " ORDER BY length DESC"; ordered = True
+        if not ordered:
+            q += " ORDER BY timestamp"
+        q += " LIMIT ?"; params.append(limit)
+
+        cur = conn.execute(q, params).fetchall()
+        headers = ["#", "Time", "Source", "Destination", "Proto", "TCP flags"]
+        rows = _evid_packet_rows(cur, limit)
+        if not caption:
+            caption = "Packets from the capture that triggered this finding."
+
+    return {"headers": headers, "rows": rows, "caption": caption, "count": len(rows)}

@@ -265,6 +265,12 @@
             </td>
             <td class="py-3 pr-4 text-xs text-slate-400 leading-relaxed max-w-md">
               {{ f.detail }}
+              {% if f.evidence_packets and f.evidence_packets.count %}
+              <button type="button" onclick="toggleEvidence(this)"
+                      class="mt-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-600/40 bg-emerald-600/10 text-emerald-300 text-[11px] font-semibold hover:bg-emerald-600/20 transition">
+                \U0001F50D Verify on PCAP
+              </button>
+              {% endif %}
             </td>
             <td class="py-3 font-mono text-xs text-slate-200">
               {% if f.evidence %}
@@ -276,6 +282,29 @@
               {% endif %}
             </td>
           </tr>
+          {% if f.evidence_packets and f.evidence_packets.count %}
+          <tr class="evidence-row hidden">
+            <td colspan="7" class="px-4 py-4 bg-slate-950/70 border-b border-slate-800/60">
+              <div class="text-xs text-slate-400 mb-2 leading-relaxed">
+                <span class="text-emerald-400 font-semibold">Evidence from the PCAP:</span>
+                {{ f.evidence_packets.caption }}
+                <span class="text-slate-500">({{ f.evidence_packets.count }} record(s) shown)</span>
+              </div>
+              <div class="overflow-x-auto rounded border border-slate-800">
+                <table class="w-full text-xs font-mono">
+                  <thead class="bg-slate-900/80 text-slate-500">
+                    <tr>{% for h in f.evidence_packets.headers %}<th class="text-left py-1.5 px-3 whitespace-nowrap">{{ h }}</th>{% endfor %}</tr>
+                  </thead>
+                  <tbody>
+                    {% for r in f.evidence_packets.rows %}
+                    <tr class="border-t border-slate-800/50 hover:bg-slate-900/40">{% for c in r %}<td class="py-1 px-3 text-slate-300 break-all">{{ c }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+          {% endif %}
           {% endfor %}
           <tr id="no-matching-row" class="hidden">
             <td colspan="7" class="py-8 text-center text-slate-500 text-sm">
@@ -391,7 +420,17 @@
   });
 
   // Client-side CIA Pillar findings tab filter
+  function toggleEvidence(btn) {
+    const row = btn.closest("tr");
+    const ev = row.nextElementSibling;
+    if (ev && ev.classList.contains("evidence-row")) {
+      ev.classList.toggle("hidden");
+      btn.innerHTML = ev.classList.contains("hidden") ? "\U0001F50D Verify on PCAP" : "\u2715 Hide packets";
+    }
+  }
+
   function filterFindings(pillar) {
+    document.querySelectorAll(".evidence-row").forEach(r => r.classList.add("hidden"));
     const rows = document.querySelectorAll(".finding-row");
     const tabs = document.querySelectorAll(".filter-tab");
     let visibleCount = 0;

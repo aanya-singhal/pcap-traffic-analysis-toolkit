@@ -200,6 +200,10 @@ def dashboard(analysis_id):
             if generated:
                 db.save_findings(conn, analysis_id, generated)
                 findings = [dict(f) for f in db.get_findings(conn, analysis_id)]
+
+    # Verify-on-PCAP: attach the packets/records that triggered each finding
+    for _f in findings:
+        _f["evidence_packets"] = db.get_finding_evidence(conn, analysis_id, _f)
     conn.close()
 
     # Normalize findings attributes
