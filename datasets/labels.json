@@ -1,0 +1,68 @@
+{
+  "port_scan.pcap": {
+    "expected_rules": [
+      "Port Scan"
+    ],
+    "packets": 31
+  },
+  "brute_force.pcap": {
+    "expected_rules": [
+      "Brute Force"
+    ],
+    "packets": 30
+  },
+  "arp_spoof.pcap": {
+    "expected_rules": [
+      "ARP Cache Poisoning"
+    ],
+    "packets": 12
+  },
+  "syn_flood.pcap": {
+    "expected_rules": [
+      "TCP SYN Flood"
+    ],
+    "packets": 200
+  },
+  "dns_tunnel.pcap": {
+    "expected_rules": [
+      "DNS Anomaly"
+    ],
+    "packets": 120
+  },
+  "xmas_null_scan.pcap": {
+    "expected_rules": [
+      "TCP Flag Evasion"
+    ],
+    "packets": 6
+  },
+  "cleartext_creds.pcap": {
+    "expected_rules": [
+      "Cleartext Credentials"
+    ],
+    "packets": 4
+  },
+  "suspicious_port.pcap": {
+    "expected_rules": [
+      "Suspicious Port"
+    ],
+    "packets": 8
+  },
+  "volume_anomaly.pcap": {
+    "expected_rules": [
+      "Volume Anomaly"
+    ],
+    "packets": 280
+  },
+  "benign.pcap": {
+    "expected_rules": [],
+    "packets": 25
+  },
+  "multi_attack.pcap": {
+    "expected_rules": [
+      "Port Scan",
+      "TCP SYN Flood",
+      "DNS Anomaly"
+    ],
+    "packets": 366
+  }
+}

@@ -473,8 +473,9 @@ def run_all_rules(conn, aid):
         detect_suspicious_ports,
         detect_dns_anomaly,
     )
+    _t = load_thresholds()
     for rule_fn in rule_executors:
-        findings.extend(rule_fn(conn, aid))
+        findings.extend(rule_fn(conn, aid, _t))
     return findings
 
 
@@ -553,3 +554,51 @@ def calculate_posture_score(findings):
 
     overall_score = max(0, min(100, sum(c["score"] for c in pillar_cards.values())))
     return PostureResult(overall_score, pillar_cards)
+
+
+# ---------- Configurable thresholds (persisted overrides) ----------
+
+import os as _os
+import json as _json
+
+THRESHOLDS_FILE = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "thresholds.json")
+
+
+def load_thresholds():
+    """Return THRESHOLDS merged with any saved overrides from thresholds.json."""
+    t = dict(THRESHOLDS)
+    try:
+        with open(THRESHOLDS_FILE) as f:
+            overrides = _json.load(f)
+        for k, v in (overrides or {}).items():
+            if k in t and not isinstance(t[k], list):
+                try:
+                    t[k] = int(v) if isinstance(t[k], int) else (float(v) if isinstance(t[k], float) else v)
+                except (ValueError, TypeError):
+                    pass
+    except (FileNotFoundError, ValueError, TypeError):
+        pass
+    return t
+
+
+def save_thresholds(overrides):
+    """Persist numeric threshold overrides (lists like brute_force_ports are left fixed)."""
+    clean = {}
+    for k, v in (overrides or {}).items():
+        if k in THRESHOLDS and not isinstance(THRESHOLDS[k], list):
+            try:
+                clean[k] = int(v) if isinstance(THRESHOLDS[k], int) else float(v)
+            except (ValueError, TypeError):
+                continue
+    with open(THRESHOLDS_FILE, "w") as f:
+        _json.dump(clean, f, indent=2)
+    return clean
+
+
+def reset_thresholds():
+    """Remove any saved overrides, reverting to built-in defaults."""
+    try:
+        _os.remove(THRESHOLDS_FILE)
+    except FileNotFoundError:
+        pass

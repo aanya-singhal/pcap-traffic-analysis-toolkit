@@ -1,0 +1,217 @@
+{
+  "corpus_size": 11,
+  "rules_evaluated": [
+    "ARP Cache Poisoning",
+    "Brute Force",
+    "Cleartext Credentials",
+    "DNS Anomaly",
+    "Port Scan",
+    "Suspicious Port",
+    "TCP Flag Evasion",
+    "TCP SYN Flood",
+    "Volume Anomaly"
+  ],
+  "exact_match": 11,
+  "micro": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "per_rule": {
+    "ARP Cache Poisoning": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Brute Force": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Cleartext Credentials": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "DNS Anomaly": {
+      "tp": 2,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Port Scan": {
+      "tp": 2,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Suspicious Port": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "TCP Flag Evasion": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "TCP SYN Flood": {
+      "tp": 2,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "Volume Anomaly": {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    }
+  },
+  "captures": [
+    {
+      "capture": "port_scan.pcap",
+      "packets": 31,
+      "expected": [
+        "Port Scan"
+      ],
+      "detected": [
+        "Port Scan"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "brute_force.pcap",
+      "packets": 30,
+      "expected": [
+        "Brute Force"
+      ],
+      "detected": [
+        "Brute Force"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "arp_spoof.pcap",
+      "packets": 12,
+      "expected": [
+        "ARP Cache Poisoning"
+      ],
+      "detected": [
+        "ARP Cache Poisoning"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "syn_flood.pcap",
+      "packets": 200,
+      "expected": [
+        "TCP SYN Flood"
+      ],
+      "detected": [
+        "TCP SYN Flood"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "dns_tunnel.pcap",
+      "packets": 120,
+      "expected": [
+        "DNS Anomaly"
+      ],
+      "detected": [
+        "DNS Anomaly"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "xmas_null_scan.pcap",
+      "packets": 6,
+      "expected": [
+        "TCP Flag Evasion"
+      ],
+      "detected": [
+        "TCP Flag Evasion"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "cleartext_creds.pcap",
+      "packets": 4,
+      "expected": [
+        "Cleartext Credentials"
+      ],
+      "detected": [
+        "Cleartext Credentials"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "suspicious_port.pcap",
+      "packets": 8,
+      "expected": [
+        "Suspicious Port"
+      ],
+      "detected": [
+        "Suspicious Port"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "volume_anomaly.pcap",
+      "packets": 280,
+      "expected": [
+        "Volume Anomaly"
+      ],
+      "detected": [
+        "Volume Anomaly"
+      ],
+      "pass": true
+    },
+    {
+      "capture": "benign.pcap",
+      "packets": 25,
+      "expected": [],
+      "detected": [],
+      "pass": true
+    },
+    {
+      "capture": "multi_attack.pcap",
+      "packets": 366,
+      "expected": [
+        "DNS Anomaly",
+        "Port Scan",
+        "TCP SYN Flood"
+      ],
+      "detected": [
+        "DNS Anomaly",
+        "Port Scan",
+        "TCP SYN Flood"
+      ],
+      "pass": true
+    }
+  ]
+}

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import time
 
-from flask import Flask, render_template, request, redirect, url_for, flash, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, abort, Response
 from werkzeug.utils import secure_filename
 
 from parser.pcap_parser import parse_pcap, capture_to_file
@@ -298,6 +298,60 @@ def dashboard(analysis_id):
         total_seconds=total_seconds,
         seconds_per_mb=(total_seconds / size_mb) if size_mb else 0,
     )
+
+
+def _posture_band_for(score):
+    if score >= 90:
+        return {"rating": "Secure / Clean", "description": "Nominal baseline. Zero critical CIA threats or protocol anomalies detected."}
+    if score >= 70:
+        return {"rating": "Guarded / Low Risk", "description": "Minor anomalies or low/medium severity reconnaissance probes detected."}
+    if score >= 40:
+        return {"rating": "Degraded / High Risk", "description": "Active reconnaissance, protocol evasion, or abnormal resource consumption detected."}
+    return {"rating": "Critical / Compromised", "description": "Critical security violations: cleartext credentials, link-layer MITM, or active DoS flood."}
+
+
+@app.route("/analysis/<int:analysis_id>/report.pdf")
+def report_pdf(analysis_id):
+    from report_pdf import generate_report_pdf
+    conn = db.get_connection()
+    analysis = db.get_analysis(conn, analysis_id)
+    if analysis is None:
+        conn.close()
+        abort(404)
+    findings = [dict(f) for f in db.get_findings(conn, analysis_id)]
+    conn.close()
+    for f in findings:
+        if not f.get("pillar"):
+            f["pillar"] = db.DEFAULT_PILLARS.get(f.get("rule", ""), "Confidentiality")
+    posture_score, pillar_cards = calculate_posture_score(findings)
+    posture_band = _posture_band_for(posture_score)
+    severity_counts = {"High": 0, "Medium": 0, "Low": 0}
+    for f in findings:
+        sev = f.get("severity", "Medium")
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+    pdf = generate_report_pdf(dict(analysis), findings, posture_score,
+                              pillar_cards, posture_band, severity_counts)
+    return Response(pdf, mimetype="application/pdf", headers={
+        "Content-Disposition": 'attachment; filename="posture_report_%d.pdf"' % analysis_id})
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    from detection.rules import THRESHOLDS as _T, load_thresholds, save_thresholds, reset_thresholds
+    if request.method == "POST":
+        overrides = {k: request.form.get(k) for k in _T
+                     if not isinstance(_T[k], list) and request.form.get(k) not in (None, "")}
+        save_thresholds(overrides)
+        flash("Detection thresholds saved. They apply to the next analysis.")
+        return redirect(url_for("settings"))
+    if request.args.get("reset"):
+        reset_thresholds()
+        flash("Thresholds reset to built-in defaults.")
+        return redirect(url_for("settings"))
+    current = load_thresholds()
+    editable = {k: v for k, v in current.items() if not isinstance(v, list)}
+    defaults = {k: v for k, v in _T.items() if not isinstance(v, list)}
+    return render_template("settings.html", thresholds=editable, defaults=defaults)
 
 
 if __name__ == "__main__":
