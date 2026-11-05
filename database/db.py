@@ -489,42 +489,287 @@ _EVID_SUSPICIOUS_PORTS = [23, 4444, 6667, 31337, 12345, 5555, 1337]
 _EVID_FLAG_COLS = [("SYN", "syn"), ("ACK", "ack"), ("RST", "rst"),
                    ("FIN", "fin"), ("PSH", "psh"), ("URG", "urg")]
 
+_EVID_SERVICE_NAMES = {
+    20: "FTP-Data",
+    21: "FTP (File Transfer)",
+    22: "SSH (Secure Shell)",
+    23: "Telnet (Cleartext Remote Login)",
+    25: "SMTP (Mail)",
+    53: "DNS (Domain Name System)",
+    80: "HTTP (Plain Web)",
+    110: "POP3 (Mail)",
+    143: "IMAP (Mail)",
+    443: "HTTPS (Encrypted TLS)",
+    445: "SMB (File Sharing)",
+    1337: "Elite / Backdoor Test Port",
+    3306: "MySQL Database",
+    3389: "RDP (Remote Desktop)",
+    4444: "Metasploit Default C2 Listener",
+    5555: "Android ADB Debug Bridge",
+    5900: "VNC Remote Desktop",
+    6667: "IRC Botnet C2 Channel",
+    12345: "NetBus Trojan Backdoor",
+    31337: "Back Orifice Trojan Backdoor",
+}
+
+
+def _service_desc(port):
+    if port is None:
+        return "Unknown"
+    try:
+        p_int = int(port)
+        return _EVID_SERVICE_NAMES.get(p_int, f"Port {p_int}")
+    except (ValueError, TypeError):
+        return str(port)
+
 
 def _evid_flag_str(row):
     flags = [name for name, col in _EVID_FLAG_COLS if row[col]]
-    return ",".join(flags) if flags else "\u2014"
-
-
-def _evid_packet_rows(cur, limit):
-    out = []
-    for i, r in enumerate(cur[:limit]):
-        sp = ":%s" % r["src_port"] if r["src_port"] is not None else ""
-        dp = ":%s" % r["dst_port"] if r["dst_port"] is not None else ""
-        ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014"
-        out.append([i + 1, ts, "%s%s" % (r["src_ip"], sp), "%s%s" % (r["dst_ip"], dp),
-                    r["protocol"] or r["transport"] or "\u2014", _evid_flag_str(r)])
-    return out
+    return ",".join(flags) if flags else "—"
 
 
 def get_finding_evidence(conn, analysis_id, finding, limit=60):
     """Return the actual capture records that triggered a finding, so a detection
-    can be verified packet-by-packet on the PCAP.
+    can be verified packet-by-packet on the PCAP with rich forensic context.
     Returns {"headers": [...], "rows": [[...]], "caption": str, "count": int}."""
     rule = finding.get("rule") or ""
     src = finding.get("src_ip")
     dst = finding.get("dst_ip")
     headers, rows, caption = [], [], ""
 
-    if rule == "Cleartext Credentials":
+    if rule == "Port Scan":
         cur = conn.execute(
-            """SELECT timestamp, protocol, type, detail FROM credentials
+            """SELECT timestamp, src_ip, dst_ip, src_port, dst_port, length,
+                      syn, ack, rst, fin, psh, urg
+               FROM packets
+               WHERE analysis_id = ? AND transport = 'TCP' AND syn = 1 AND ack = 0
+                     AND (? IS NULL OR src_ip = ?) AND (? IS NULL OR dst_ip = ?)
+               ORDER BY timestamp LIMIT ?""",
+            (analysis_id, src, src, dst, dst, limit),
+        ).fetchall()
+        headers = ["#", "Time (s)", "Scanner (Source)", "Target Host", "Probed Port", "Service / Known Protocol", "TCP Flags", "Size", "Forensic Verification Note"]
+        seen_ports = set()
+        rows = []
+        for i, r in enumerate(cur):
+            p = r["dst_port"]
+            is_new = p not in seen_ports
+            seen_ports.add(p)
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            svc = _service_desc(p)
+            probe_note = f"Distinct Port Probe #{len(seen_ports)} ({svc})" if is_new else f"Repeat probe to port {p}"
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                str(r["dst_ip"] or "—"),
+                f"Port {p}",
+                svc,
+                _evid_flag_str(r),
+                f"{r['length'] or 0} B",
+                probe_note
+            ])
+        caption = f"TCP SYN scan telemetry: {src} systematically contacted {len(seen_ports)} distinct destination port(s) on {dst or 'target'}. Below are the individual SYN probes:"
+
+    elif rule == "Brute Force":
+        ph = ",".join("?" * len(_EVID_BRUTE_PORTS))
+        params = [analysis_id] + _EVID_BRUTE_PORTS
+        q = f"""SELECT timestamp, src_ip, dst_ip, src_port, dst_port, length,
+                       syn, ack, rst, fin, psh, urg
+                FROM packets
+                WHERE analysis_id = ? AND transport = 'TCP' AND syn = 1 AND ack = 0
+                      AND dst_port IN ({ph})"""
+        if src:
+            q += " AND src_ip = ?"
+            params.append(src)
+        if dst:
+            q += " AND dst_ip = ?"
+            params.append(dst)
+        q += " ORDER BY timestamp LIMIT ?"
+        params.append(limit)
+        cur = conn.execute(q, params).fetchall()
+
+        headers = ["#", "Time (s)", "Attacker (Source)", "Target Host", "Target Port & Service", "TCP Flags", "Packet Size", "Burst Sequence & Timing"]
+        rows = []
+        prev_ts = None
+        for i, r in enumerate(cur):
+            ts_val = r["timestamp"]
+            ts = ("%.3f" % ts_val) if ts_val is not None else "—"
+            delta_str = ""
+            if prev_ts is not None and ts_val is not None:
+                delta = ts_val - prev_ts
+                delta_str = f" (+{delta:.2f}s)"
+            prev_ts = ts_val
+            p = r["dst_port"]
+            svc = _service_desc(p)
+            burst_note = f"Rapid Auth Attempt #{i + 1}{delta_str}"
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                str(r["dst_ip"] or "—"),
+                f"Port {p} ({svc})",
+                _evid_flag_str(r),
+                f"{r['length'] or 0} B",
+                burst_note
+            ])
+        caption = f"Rapid authentication burst: repeated TCP connection attempts targeting login service ({rows[0][4] if rows else 'service'}) within 60s window."
+
+    elif rule == "TCP SYN Flood":
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, dst_ip, src_port, dst_port, length,
+                      syn, ack, rst, fin, psh, urg
+               FROM packets
+               WHERE analysis_id = ? AND transport = 'TCP' AND syn = 1 AND ack = 0
+                     AND (? IS NULL OR dst_ip = ?)
+               ORDER BY timestamp LIMIT ?""",
+            (analysis_id, dst, dst, limit),
+        ).fetchall()
+        headers = ["#", "Time (s)", "Source IP:Port", "Target Host", "Target Port & Service", "TCP Flags", "Packet Size", "Socket State & Backlog Impact"]
+        rows = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            p = r["dst_port"]
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                str(r["dst_ip"] or "—"),
+                f"Port {p} ({_service_desc(p)})",
+                _evid_flag_str(r),
+                f"{r['length'] or 0} B",
+                "Unacknowledged SYN — Half-Open Backlog Queue"
+            ])
+        caption = f"Volumetric SYN flood directed at {dst or 'target'}: continuous unacknowledged SYNs exhausting target kernel connection backlog."
+
+    elif rule == "TCP Flag Evasion":
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, dst_ip, src_port, dst_port, length,
+                      syn, ack, rst, fin, psh, urg
+               FROM packets
+               WHERE analysis_id = ? AND transport = 'TCP'
+                     AND ((fin=1 AND psh=1 AND urg=1 AND syn=0 AND ack=0)
+                          OR (syn=0 AND ack=0 AND rst=0 AND fin=0 AND psh=0 AND urg=0))
+                     AND (? IS NULL OR src_ip = ?) AND (? IS NULL OR dst_ip = ?)
+               ORDER BY timestamp LIMIT ?""",
+            (analysis_id, src, src, dst, dst, limit),
+        ).fetchall()
+        headers = ["#", "Time (s)", "Source Host", "Target Host:Port", "Active TCP Flags", "Evasion Technique", "RFC 793 State Machine Violation"]
+        rows = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            flags = _evid_flag_str(r)
+            if r["fin"] and r["psh"] and r["urg"]:
+                technique = "Xmas Scan (FIN+PSH+URG)"
+                violation = "Illegal RFC 793 permutation: probes closed ports to bypass stateless packet filters"
+            else:
+                technique = "Null Scan (Zero Flags)"
+                violation = "Illegal RFC 793 permutation: packet with zero control flags set"
+            dp = f":{r['dst_port']}" if r["dst_port"] else ""
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                f"{r['dst_ip']}{dp}",
+                flags if flags != "—" else "None (All 6 flags = 0)",
+                technique,
+                violation
+            ])
+        caption = "Packets with illegal TCP control flag combinations engineered to bypass firewalls by violating RFC 793 protocol state specifications."
+
+    elif rule == "Volume Anomaly":
+        tot_bytes = conn.execute(
+            "SELECT COALESCE(SUM(length), 0) FROM packets WHERE analysis_id = ?",
+            (analysis_id,)
+        ).fetchone()[0] or 1
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, dst_ip, src_port, dst_port, transport, protocol, length,
+                      syn, ack, rst, fin, psh, urg
+               FROM packets
+               WHERE analysis_id = ? AND (? IS NULL OR src_ip = ?)
+               ORDER BY length DESC, timestamp LIMIT ?""",
+            (analysis_id, src, src, limit),
+        ).fetchall()
+        headers = ["#", "Time (s)", "Heavy Talker (Source)", "Destination Host:Port", "Protocol", "Packet Length (Bytes)", "Running Total (KB)", "Bandwidth Share Contribution"]
+        rows = []
+        running_bytes = 0
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            plen = int(r["length"] or 0)
+            running_bytes += plen
+            dp = f":{r['dst_port']}" if r["dst_port"] else ""
+            share_pct = (running_bytes / tot_bytes) * 100
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                f"{r['dst_ip']}{dp}",
+                r["protocol"] or r["transport"] or "—",
+                f"{plen:,} Bytes",
+                f"{running_bytes / 1024:.1f} KB",
+                f"Cumulative {share_pct:.1f}% of capture"
+            ])
+        caption = f"Largest payload packets generated by {src or 'host'}: illustrates disproportionate traffic concentration resulting in bandwidth monopolization."
+
+    elif rule == "Suspicious Port":
+        ph = ",".join("?" * len(_EVID_SUSPICIOUS_PORTS))
+        params = [analysis_id] + _EVID_SUSPICIOUS_PORTS
+        q = f"""SELECT timestamp, src_ip, dst_ip, src_port, dst_port, transport, protocol, length,
+                       syn, ack, rst, fin, psh, urg
+                FROM packets
+                WHERE analysis_id = ? AND dst_port IN ({ph})"""
+        if src:
+            q += " AND src_ip = ?"
+            params.append(src)
+        if dst:
+            q += " AND dst_ip = ?"
+            params.append(dst)
+        q += " ORDER BY timestamp LIMIT ?"
+        params.append(limit)
+        cur = conn.execute(q, params).fetchall()
+        headers = ["#", "Time (s)", "Source Host", "Target Host", "Destination Port", "Known Threat / C2 Service", "Protocol", "Security Implication"]
+        rows = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            p = r["dst_port"]
+            svc = _service_desc(p)
+            if p in (4444, 31337, 12345, 1337):
+                implication = "High Severity — Backdoor listener / Remote shell compromise"
+            elif p in (23, 5555):
+                implication = "Medium Severity — Insecure legacy or unauthenticated remote access"
+            else:
+                implication = "Medium Severity — Known malicious / C2 channel"
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}:{r['src_port']}" if r["src_port"] else str(r["src_ip"] or "—"),
+                str(r["dst_ip"] or "—"),
+                f"Port {p}",
+                svc,
+                r["protocol"] or r["transport"] or "TCP",
+                implication
+            ])
+        caption = "Packets connecting to known backdoor, remote-shell, or legacy cleartext administrative service ports."
+
+    elif rule == "Cleartext Credentials":
+        cur = conn.execute(
+            """SELECT timestamp, src_ip, dst_ip, protocol, type, detail FROM credentials
                WHERE analysis_id = ? AND (? IS NULL OR src_ip = ?) AND (? IS NULL OR dst_ip = ?)
                ORDER BY timestamp LIMIT ?""",
             (analysis_id, src, src, dst, dst, limit)).fetchall()
-        headers = ["Time", "Protocol", "Type", "Recovered credential (cleartext)"]
-        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
-                 r["protocol"] or "\u2014", r["type"] or "\u2014", r["detail"] or "\u2014"] for r in cur]
-        caption = "Credentials recovered directly from the unencrypted packet payloads \u2014 point at these to prove the Confidentiality breach."
+        headers = ["#", "Time (s)", "Client (Source)", "Target Server", "Protocol", "Authentication Method", "Exposed Secret / Payload"]
+        rows = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            rows.append([
+                i + 1,
+                ts,
+                str(r["src_ip"] or "—"),
+                str(r["dst_ip"] or "—"),
+                r["protocol"] or "—",
+                r["type"] or "—",
+                r["detail"] or "—"
+            ])
+        caption = "Unencrypted authentication credentials extracted directly from application payloads — conclusive proof of Confidentiality breach."
 
     elif rule == "DNS Anomaly":
         cur = conn.execute(
@@ -532,68 +777,81 @@ def get_finding_evidence(conn, analysis_id, finding, limit=60):
                WHERE analysis_id = ? AND is_response = 0 AND (? IS NULL OR src_ip = ?)
                ORDER BY LENGTH(query) DESC, timestamp LIMIT ?""",
             (analysis_id, src, src, limit)).fetchall()
-        headers = ["Time", "Source", "DNS query name (data leaving the network)", "Length"]
-        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
-                 r["src_ip"] or "\u2014", r["query"] or "\u2014", len(r["query"] or "")] for r in cur]
-        caption = ("Each query name is data leaving the network, encoded as a DNS lookup. "
-                   "This is exactly why DNS tunneling is a Confidentiality (data-exfiltration) violation.")
+        headers = ["#", "Time (s)", "Querying Client", "Queried Domain (Smuggled Payload)", "Character Length", "Covert Channel Analysis"]
+        rows = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            qname = r["query"] or "—"
+            qlen = len(qname)
+            analysis = "High Probability DNS Tunneling Exfiltration (>50 chars)" if qlen > 50 else "High-Frequency Query Flood"
+            rows.append([
+                i + 1,
+                ts,
+                str(r["src_ip"] or "—"),
+                qname,
+                f"{qlen} chars",
+                analysis
+            ])
+        caption = "DNS query telemetry: each query string represents encoded data escaping the network via port 53 (Confidentiality / Exfiltration breach)."
 
     elif rule == "ARP Cache Poisoning":
         cur = conn.execute(
-            """SELECT timestamp, src_ip, src_mac FROM arp_records
-               WHERE analysis_id = ? AND src_ip = ? AND src_mac IS NOT NULL
+            """SELECT timestamp, src_ip, dst_ip, src_mac, dst_mac, opcode
+               FROM arp_records
+               WHERE analysis_id = ? AND (? IS NULL OR src_ip = ?) AND src_mac IS NOT NULL
                ORDER BY timestamp LIMIT ?""",
-            (analysis_id, src, limit)).fetchall()
-        headers = ["Time", "Claimed IP", "Source MAC"]
-        rows = [[("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "\u2014",
-                 r["src_ip"] or "\u2014", r["src_mac"] or "\u2014"] for r in cur]
-        caption = "The same IP is claimed by more than one MAC address \u2014 the signature of ARP cache poisoning / MITM."
+            (analysis_id, src, src, limit),
+        ).fetchall()
+        headers = ["#", "Time (s)", "Target / Claimed IP", "Asserted Hardware MAC", "Destination MAC", "ARP Opcode", "MITM Conflict Status"]
+        rows = []
+        seen_macs = []
+        for i, r in enumerate(cur):
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            mac = r["src_mac"]
+            if mac not in seen_macs:
+                seen_macs.append(mac)
+            mac_idx = seen_macs.index(mac) + 1
+            op = "Reply (2)" if str(r["opcode"]) in ("2", "reply") else ("Request (1)" if str(r["opcode"]) in ("1", "request") else str(r["opcode"] or "ARP"))
+            conflict_note = f"Conflicting MAC #{mac_idx} claiming IP" if len(seen_macs) > 1 else "Claimant MAC #1"
+            rows.append([
+                i + 1,
+                ts,
+                str(r["src_ip"] or "—"),
+                str(mac or "—"),
+                str(r["dst_mac"] or "Broadcast (ff:ff:ff:ff:ff:ff)"),
+                op,
+                conflict_note
+            ])
+        caption = f"ARP resolution telemetry for IP {src}: multiple distinct MAC addresses claiming ownership — conclusive proof of ARP Cache Poisoning (Layer 2 MITM)."
 
     else:
         q = ("SELECT timestamp, src_ip, dst_ip, src_port, dst_port, transport, protocol, "
-             "syn, ack, rst, fin, psh, urg FROM packets WHERE analysis_id = ?")
+             "length, syn, ack, rst, fin, psh, urg FROM packets WHERE analysis_id = ?")
         params = [analysis_id]
-        ordered = False
-        if rule == "Port Scan":
-            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0"
-            caption = "Each row is a TCP SYN probe to a different port \u2014 the fingerprint of a port scan."
-        elif rule == "Brute Force":
-            ph = ",".join("?" * len(_EVID_BRUTE_PORTS))
-            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0 AND dst_port IN (%s)" % ph
-            params += _EVID_BRUTE_PORTS
-            caption = "Repeated connection attempts to a login service."
-        elif rule == "Suspicious Port":
-            ph = ",".join("?" * len(_EVID_SUSPICIOUS_PORTS))
-            q += " AND dst_port IN (%s)" % ph
-            params += _EVID_SUSPICIOUS_PORTS
-            caption = "Traffic to a known backdoor / cleartext service port."
-        elif rule == "TCP Flag Evasion":
-            q += (" AND transport = 'TCP' AND ((fin=1 AND psh=1 AND urg=1 AND syn=0 AND ack=0) "
-                  "OR (syn=0 AND ack=0 AND rst=0 AND fin=0 AND psh=0 AND urg=0))")
-            caption = "Packets with illegal TCP flag combinations (Xmas / Null) violating RFC 793."
-        elif rule == "TCP SYN Flood":
-            q += " AND transport = 'TCP' AND syn = 1 AND ack = 0"
-            caption = "A flood of unacknowledged SYN packets aimed at one target."
-        elif rule == "Volume Anomaly":
-            caption = "The largest packets sent by the host that dominated the capture."
-
-        if rule not in ("TCP SYN Flood", "Volume Anomaly") and src:
-            q += " AND src_ip = ?"; params.append(src)
-        if rule != "Volume Anomaly" and dst:
-            q += " AND dst_ip = ?"; params.append(dst)
-        if rule == "Volume Anomaly" and src:
-            q += " AND src_ip = ?"; params.append(src)
-
-        if rule == "Volume Anomaly":
-            q += " ORDER BY length DESC"; ordered = True
-        if not ordered:
-            q += " ORDER BY timestamp"
-        q += " LIMIT ?"; params.append(limit)
-
+        if src:
+            q += " AND src_ip = ?"
+            params.append(src)
+        if dst:
+            q += " AND dst_ip = ?"
+            params.append(dst)
+        q += " ORDER BY timestamp LIMIT ?"
+        params.append(limit)
         cur = conn.execute(q, params).fetchall()
-        headers = ["#", "Time", "Source", "Destination", "Proto", "TCP flags"]
-        rows = _evid_packet_rows(cur, limit)
-        if not caption:
-            caption = "Packets from the capture that triggered this finding."
+        headers = ["#", "Time (s)", "Source", "Destination", "Protocol", "TCP Flags", "Packet Length"]
+        rows = []
+        for i, r in enumerate(cur):
+            sp = f":{r['src_port']}" if r["src_port"] is not None else ""
+            dp = f":{r['dst_port']}" if r["dst_port"] is not None else ""
+            ts = ("%.3f" % r["timestamp"]) if r["timestamp"] is not None else "—"
+            rows.append([
+                i + 1,
+                ts,
+                f"{r['src_ip']}{sp}",
+                f"{r['dst_ip']}{dp}",
+                r["protocol"] or r["transport"] or "—",
+                _evid_flag_str(r),
+                f"{r['length'] or 0} B"
+            ])
+        caption = "Packets from the capture that triggered this finding."
 
     return {"headers": headers, "rows": rows, "caption": caption, "count": len(rows)}
